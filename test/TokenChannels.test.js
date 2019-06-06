@@ -1,13 +1,13 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
-const StateChannels = artifacts.require('StateChannels');
-const { utils, eth } = web3;
-const { BN, toWei, randomHex, keccak256 } = utils;
-const { getBalance, getTransaction } = eth;
 const testHelpers = require('./helpers');
-
 const { expectEvent, sign, getGasPrice } = testHelpers;
 
-contract('StateChannels', accounts => {
+const TokenChannels = artifacts.require('TokenChannels');
+const { utils, eth } = web3;
+const { BN, toWei, randomHex, keccak256 } = utils;
+const { getBalance } = eth;
+
+contract.only('TokenChannels', accounts => {
   const [root, alice, bob] = accounts;
 
   let contract;
@@ -16,7 +16,7 @@ contract('StateChannels', accounts => {
   const bobValue = toWei('5', 'ether');
 
   before(async () => {
-    contract = await StateChannels.new();
+    contract = await TokenChannels.new();
     channelId = randomHex(32);
   });
 

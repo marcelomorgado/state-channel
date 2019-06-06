@@ -8,7 +8,7 @@ import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 // Rename vars
 // Use SafeMath
 //
-contract StateChannels {
+contract TokenChannels {
     using SafeMath for uint256;
     using ECDSA for bytes32;
 
