@@ -11,6 +11,51 @@ const { expectEvent, sign } = testHelpers;
 const { utils } = web3;
 const { toWei, keccak256 } = utils;
 
+/*
+ * States
+ */
+const channelStates = [];
+
+const getLastState = () => {
+  const lastState = channelStates[channelStates.length - 1];
+  return lastState;
+};
+
+// Update channel state
+const offChainTransfer = async (from, to, value) => {
+  const lastState = getLastState();
+  const { channelId, partyAddress, counterPartyAddress } = lastState;
+  let { partyBalance, counterPartyBalance, nonce } = lastState;
+
+  // Update balances and nonce
+  partyBalance = from === partyAddress ? partyBalance.sub(value) : partyBalance.add(value);
+
+  counterPartyBalance =
+    from === counterPartyAddress ? counterPartyBalance.sub(value) : counterPartyBalance.add(value);
+
+  nonce = nonce.add(new BN(1));
+
+  // Sign
+  const stateEncoded = web3.eth.abi.encodeParameters(
+    ['bytes32', 'uint', 'uint', 'uint'],
+    [channelId, `${partyBalance}`, `${counterPartyBalance}`, `${nonce}`]
+  );
+  const stateHash = keccak256(stateEncoded);
+  const partySignature = await sign(stateHash, from === partyAddress ? from : to);
+  const counterPartySignature = await sign(stateHash, from === counterPartyAddress ? from : to);
+
+  // Save new state
+  const newState = {
+    ...lastState,
+    partyBalance,
+    counterPartyBalance,
+    nonce,
+    partySignature,
+    counterPartySignature
+  };
+  channelStates.push(newState);
+};
+
 contract.only('TokenChannels', accounts => {
   const [root, alice, bob] = accounts;
 
@@ -18,10 +63,9 @@ contract.only('TokenChannels', accounts => {
   let daiAddress;
   let channel;
   let channelAddress;
-  let channelId;
-  const channelStates = [];
-  const aliceValue = toWei('10', 'ether');
-  const bobValue = toWei('5', 'ether');
+
+  const aliceDeposit = toWei('10', 'ether');
+  const bobDeposit = toWei('5', 'ether');
 
   before(async () => {
     dai = await Dai.new();
@@ -31,102 +75,83 @@ contract.only('TokenChannels', accounts => {
     ({ address: channelAddress } = channel);
 
     // Parties should be funded with tokens
-    await dai.mint(alice, aliceValue, { from: root });
-    await dai.mint(bob, bobValue, { from: root });
+    await dai.mint(alice, aliceDeposit, { from: root });
+    await dai.mint(bob, bobDeposit, { from: root });
 
     const aliceBalance = (await dai.balanceOf(alice)).toString();
     const bobBalance = (await dai.balanceOf(bob)).toString();
 
-    expect(aliceBalance).to.equal(aliceValue);
-    expect(bobBalance).to.equal(bobValue);
+    expect(aliceBalance).to.equal(aliceDeposit);
+    expect(bobBalance).to.equal(bobDeposit);
 
     // Parties should approve Channel contract
-    const aliceApprovalTx = await dai.approve(channelAddress, aliceValue, { from: alice });
+    const aliceApprovalTx = await dai.approve(channelAddress, aliceDeposit, { from: alice });
     expectEvent(aliceApprovalTx, 'Approval');
 
-    const bobApprovalTx = await dai.approve(channelAddress, bobValue, { from: bob });
+    const bobApprovalTx = await dai.approve(channelAddress, bobDeposit, { from: bob });
     expectEvent(bobApprovalTx, 'Approval');
   });
 
   it('alice should open a channel', async () => {
     const conterParty = bob;
-    const amount = aliceValue;
+    const amount = aliceDeposit;
 
     const tx = await channel.open(daiAddress, conterParty, amount, {
       from: alice
     });
 
-    // ChannelOpened event whould be emitted
+    // ChannelOpened event should be emitted
     const { args } = tx.logs.find(l => l.event === 'ChannelOpened');
-    ({ channelId } = args);
+    const { channelId } = args;
     expect(channelId).to.be.ok;
 
     // Channel should be funded
-    const expectedBalance = aliceValue;
-    const balance = (await dai.balanceOf(channelAddress)).toString();
-    expect(balance).to.equal(expectedBalance);
-  });
-
-  it('bob should join to the channel', async () => {
-    const amount = bobValue;
-    const tx = await channel.join(channelId, amount, { from: bob });
-
-    expectEvent(tx, 'CounterPartyJoined', { channelId });
-
-    const expectedBalance = new BN(aliceValue).add(new BN(bobValue)).toString();
-    const balance = (await dai.balanceOf(channelAddress)).toString();
-    expect(balance).to.equal(expectedBalance);
+    const expectedBalance = new BN(aliceDeposit);
+    const balance = await dai.balanceOf(channelAddress);
+    expect(balance).to.be.bignumber.equal(expectedBalance);
 
     // Save initial state
     const initialState = await channel.channels.call(channelId);
     channelStates.push(initialState);
   });
 
-  it('should do an off-chain transfer', async () => {
-    const lastState = channelStates[channelStates.length - 1];
-    let { partyBalance, counterPartyBalance, nonce } = lastState;
+  it('bob should join to the channel', async () => {
+    const { channelId } = channelStates.pop();
+    const amount = bobDeposit;
 
-    // Off-chain transfer of 9 tokens from alice (party) to bob (counterParty)
-    const value = new BN(toWei('9', 'ether'));
+    const tx = await channel.join(channelId, amount, { from: bob });
+    expectEvent(tx, 'CounterPartyJoined', { channelId });
 
-    partyBalance = partyBalance.sub(value);
-    counterPartyBalance = counterPartyBalance.add(value);
-    nonce = nonce.add(new BN(1));
+    const expectedBalance = new BN(aliceDeposit).add(new BN(bobDeposit));
+    const balance = await dai.balanceOf(channelAddress);
+    expect(balance).to.be.bignumber.equal(expectedBalance);
 
-    const newState = { ...lastState, partyBalance, counterPartyBalance, nonce };
-    channelStates.push(newState);
+    // Update initial state
+    const initialState = await channel.channels.call(channelId);
+    channelStates.push(initialState);
   });
 
-  const getHashOfChannelState = state => {
-    const { partyBalance, counterPartyBalance, nonce } = state;
-
-    const stateEncoded = web3.eth.abi.encodeParameters(
-      ['bytes32', 'uint', 'uint', 'uint'],
-      [channelId, partyBalance.toString(), counterPartyBalance.toString(), nonce.toString()]
-    );
-
-    const stateHash = keccak256(stateEncoded);
-    return stateHash;
-  };
+  it('should do an off-chain transfer', async () => {
+    const value = new BN(toWei('9', 'ether'));
+    await offChainTransfer(alice, bob, value);
+  });
 
   it('channel should be closed', async () => {
-    const lastState = channelStates[channelStates.length - 1];
     const {
+      channelId,
       partyBalance: aliceFinalBalance,
       counterPartyBalance: bobFinalBalance,
-      nonce
-    } = lastState;
-    const stateHash = getHashOfChannelState(lastState);
-
-    const aliceSignature = await sign(stateHash, alice);
-    const bobSignature = await sign(stateHash, bob);
+      nonce,
+      partySignature: aliceSignature,
+      counterPartySignature: bobSignature
+    } = getLastState();
 
     const aliceBalanceBefore = await dai.balanceOf(alice);
     const bobBalanceBefore = await dai.balanceOf(bob);
 
     const tx = await channel.close(
       channelId,
-      nonce.toString(),
+      `${nonce}`,
       `${aliceFinalBalance}`,
       `${bobFinalBalance}`,
       aliceSignature,
