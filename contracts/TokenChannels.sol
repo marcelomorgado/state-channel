@@ -45,7 +45,10 @@ contract TokenChannels {
     }
 
     modifier onlyParties(bytes32 id) {
-        require(msg.sender == channels[id].partyAddress || msg.sender == channels[id].counterPartyAddress, "you are not a participant in this channel");
+        require(
+            msg.sender == channels[id].partyAddress || msg.sender == channels[id].counterPartyAddress,
+            "you are not a participant in this channel"
+        );
         _;
     }
 
@@ -97,8 +100,6 @@ contract TokenChannels {
         emit CounterPartyJoined(channelId);
     }
 
-
-
     function close(
         bytes32 channelId,
         uint nonce,
@@ -107,15 +108,20 @@ contract TokenChannels {
         bytes memory partySignature,
         bytes memory counterPartySignature
     ) public onlyParties(channelId) validChannel(channelId) {
-
         Channel memory channel = channels[channelId];
 
         bytes32 stateHash = keccak256(
             abi.encodePacked(channelId, partyBalance, counterPartyBalance, nonce)
         );
 
-        require(ecverify(stateHash, partySignature, channel.partyAddress), "partySignature invalid");
-        require(ecverify(stateHash, counterPartySignature, channel.counterPartyAddress), "counterPartySignature invalid");
+        require(
+            ecverify(stateHash, partySignature, channel.partyAddress),
+            "partySignature invalid"
+        );
+        require(
+            ecverify(stateHash, counterPartySignature, channel.counterPartyAddress),
+            "counterPartySignature invalid"
+        );
         //require(nonce > channel.nonce, "sequence number too low");
 
         require(
@@ -126,13 +132,23 @@ contract TokenChannels {
         delete channels[channelId];
 
         ERC20 token = ERC20(channel.tokenAddress);
-        require(token.transfer(channel.partyAddress, partyBalance), "Token transfer to the party failed");
-        require(token.transfer(channel.counterPartyAddress, counterPartyBalance), "Token transfer to the counter party failed");
+        require(
+            token.transfer(channel.partyAddress, partyBalance),
+            "Token transfer to the party failed"
+        );
+        require(
+            token.transfer(channel.counterPartyAddress, counterPartyBalance),
+            "Token transfer to the counter party failed"
+        );
 
         emit ChannelClosed(channelId);
     }
 
-    function ecverify(bytes32 hash, bytes memory sig, address signer) internal pure returns (bool b) {
+    function ecverify(bytes32 hash, bytes memory sig, address signer)
+        internal
+        pure
+        returns (bool b)
+    {
         bytes32 ethHash = hash.toEthSignedMessageHash();
         return ethHash.recover(sig) == signer;
     }

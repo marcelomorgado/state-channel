@@ -114,7 +114,11 @@ contract StateChannels {
         emit ChannelClosed(channelId);
     }
 
-    function ecverify(bytes32 hash, bytes memory sig, address signer) internal pure returns (bool b) {
+    function ecverify(bytes32 hash, bytes memory sig, address signer)
+        internal
+        pure
+        returns (bool b)
+    {
         bytes32 ethHash = hash.toEthSignedMessageHash();
         return ethHash.recover(sig) == signer;
     }
