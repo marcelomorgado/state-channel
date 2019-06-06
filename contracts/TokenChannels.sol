@@ -7,6 +7,7 @@ import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 //
 // Rename vars
 // Use SafeMath
+// Use modifers
 //
 contract TokenChannels {
     using SafeMath for uint256;
@@ -30,15 +31,17 @@ contract TokenChannels {
     event ChannelClosed(bytes32 channelId);
 
     // TODO: Generate channelId
-    function open(bytes32 channelId, address address1, uint value) public payable {
-        require(
-            channels[channelId].channelId != channelId,
-            "channel with that channelId already exists"
-        );
+    function open(address address1, uint value) public payable {
+
 
         require(msg.sender != address1, "you cant create a channel with yourself");
         require(value != 0, "you can't create a payment channel with no money");
         require(msg.value == value, "incorrect funds");
+
+        // create a channel with the id being a hash of the data
+        bytes32 channelId = keccak256(
+            abi.encodePacked(msg.sender, address1, block.timestamp)
+        );
 
         Channel memory channel = Channel(
             channelId,

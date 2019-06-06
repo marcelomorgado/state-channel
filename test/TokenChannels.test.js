@@ -1,5 +1,6 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 const testHelpers = require('./helpers');
+
 const { expectEvent, sign, getGasPrice } = testHelpers;
 
 const TokenChannels = artifacts.require('TokenChannels');
@@ -17,16 +18,19 @@ contract.only('TokenChannels', accounts => {
 
   before(async () => {
     contract = await TokenChannels.new();
-    channelId = randomHex(32);
   });
 
   it('alice should open a channel', async () => {
-    const tx = await contract.open(channelId, bob, aliceValue, {
+    const tx = await contract.open(bob, aliceValue, {
       from: alice,
       value: aliceValue
     });
 
-    expectEvent(tx, 'ChannelOpened', { channelId });
+    // expectEvent(tx, 'ChannelOpened', { channelId });
+
+    const { args } = tx.logs.find(l => l.event === 'ChannelOpened');
+    ({ channelId } = args);
+    expect(channelId).to.be.ok;
 
     const expectedBalance = aliceValue;
     const balance = await getBalance(contract.address);
