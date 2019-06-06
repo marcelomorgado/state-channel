@@ -2,25 +2,32 @@ pragma solidity 0.5.8;
 
 import "openzeppelin-solidity/contracts/cryptography/ECDSA.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
+import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 
 // TODO
 //
 // Rename vars
 // Use SafeMath
 // Use modifers
+// Challenge
+// Offline cases (periods)
+// ChannelState
+// Great comments
 //
 contract TokenChannels {
     using SafeMath for uint256;
     using ECDSA for bytes32;
 
-    // the data structure for the channel
+    //enum ChannelState { Open, Closing, Closed }
+
     struct Channel {
         bytes32 channelId;
-        address address0;
-        address address1;
-        uint balance0;
-        uint balance1;
-        uint sequenceNumber;
+        address tokenAddress;
+        address partyAddress;
+        address counterPartyAddress;
+        uint partyBalance;
+        uint counterPartyBalance;
+        uint nonce;
     }
 
     // channels by Id
@@ -30,27 +37,29 @@ contract TokenChannels {
     event CounterPartyJoined(bytes32 channelId);
     event ChannelClosed(bytes32 channelId);
 
-    // TODO: Generate channelId
-    function open(address address1, uint value) public payable {
+    function open(address tokenAddress, address counterPartyAddress, uint256 amount) public payable {
+        address partyAddress = msg.sender;
 
+        require(partyAddress != counterPartyAddress, "you cant create a channel with yourself");
+        require(amount != 0, "you can't create a payment channel with no money");
 
-        require(msg.sender != address1, "you cant create a channel with yourself");
-        require(value != 0, "you can't create a payment channel with no money");
-        require(msg.value == value, "incorrect funds");
-
-        // create a channel with the id being a hash of the data
+        // Note: block.timestamp isn't a strong source of entropy but it's enough safe for that use case
         bytes32 channelId = keccak256(
-            abi.encodePacked(msg.sender, address1, block.timestamp)
+            abi.encodePacked(partyAddress, counterPartyAddress, block.timestamp)
         );
 
         Channel memory channel = Channel(
             channelId,
-            msg.sender, // address0
-            address1, // address1
-            msg.value, // balance0
-            0, // balance1
+            tokenAddress,
+            partyAddress,
+            counterPartyAddress,
+            amount, // partyBalance
+            0, // counterPartyBalance
             0 // sequence number
         );
+
+        ERC20 token = ERC20(tokenAddress);
+        require(token.transferFrom(partyAddress, address(this), amount), "incorrect funds");
 
         channels[channelId] = channel;
 
@@ -60,21 +69,21 @@ contract TokenChannels {
     function join(bytes32 channelId) public payable {
         require(channels[channelId].channelId != 0, "no channel with that channelId exists");
         require(
-            channels[channelId].address1 == msg.sender,
+            channels[channelId].counterPartyAddress == msg.sender,
             "the channel creator did not specify you as the second participant"
         );
         require(msg.value != 0, "incorrect funds");
 
-        channels[channelId].balance1 = msg.value;
+        channels[channelId].counterPartyBalance = msg.value;
 
         emit CounterPartyJoined(channelId);
     }
 
     function close(
         bytes32 channelId,
-        uint sequenceNumber,
-        uint balance0,
-        uint balance1,
+        uint nonce,
+        uint partyBalance,
+        uint counterPartyBalance,
         bytes memory signature0,
         bytes memory signature1
     ) public {
@@ -84,35 +93,35 @@ contract TokenChannels {
         Channel memory channel = channels[channelId];
 
         require(
-            channel.address0 == msg.sender || channel.address1 == msg.sender,
+            channel.partyAddress == msg.sender || channel.counterPartyAddress == msg.sender,
             "you are not a participant in this channel"
         );
 
         // sha3
         bytes32 stateHash = keccak256(
-            abi.encodePacked(channelId, balance0, balance1, sequenceNumber)
+            abi.encodePacked(channelId, partyBalance, counterPartyBalance, nonce)
         );
 
-        require(ecverify(stateHash, signature0, channel.address0), "signature0 invalid");
+        require(ecverify(stateHash, signature0, channel.partyAddress), "signature0 invalid");
 
-        require(ecverify(stateHash, signature1, channel.address1), "signature1 invalid");
+        require(ecverify(stateHash, signature1, channel.counterPartyAddress), "signature1 invalid");
 
         // TODO: Remove-me?
-        require(sequenceNumber > channel.sequenceNumber, "sequence number too low");
+        require(nonce > channel.nonce, "sequence number too low");
 
         require(
-            (balance0 + balance1) == (channel.balance0 + channel.balance1),
+            (partyBalance + counterPartyBalance) == (channel.partyBalance + channel.counterPartyBalance),
             "the law of conservation of total balances was not respected"
         );
 
         // delete channel storage first to prevent re-entry
         delete channels[channelId];
 
-        address payable a0 = address(uint160(channel.address0));
-        address payable a1 = address(uint160(channel.address1));
+        address payable a0 = address(uint160(channel.partyAddress));
+        address payable a1 = address(uint160(channel.counterPartyAddress));
 
-        a0.transfer(balance0);
-        a1.transfer(balance1);
+        a0.transfer(partyBalance);
+        a1.transfer(counterPartyBalance);
 
         emit ChannelClosed(channelId);
     }
