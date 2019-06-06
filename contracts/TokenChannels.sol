@@ -97,7 +97,7 @@ contract TokenChannels {
    * Join to an existent channel. That contract should be approved by the sender to transfer on his behalf
    *
    * @param channelId   Channel ID
-   * @param amount      Number of tokens to deposit
+   * @param amount      Number of tokens to deposit (can be zero)
    */
     function join(bytes32 channelId, uint256 amount) public validChannel(channelId) {
         address counterPartyAddress = msg.sender;
@@ -109,7 +109,6 @@ contract TokenChannels {
             "The channel creator did'nt specify you as the counter party"
         );
 
-        // Tech-debt: Is this check vulnarable?
         require(amount >= 0, "Incorrect amount");
 
         if (amount > 0) {
@@ -125,7 +124,7 @@ contract TokenChannels {
     }
 
     /**
-   * Clone a channel
+   * Close a channel
    *
    * @param channelId               Channel ID
    * @param nonce                   Sequence number
