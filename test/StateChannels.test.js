@@ -20,6 +20,19 @@ const getGasPrice = async txHash => {
   return gasPrice;
 };
 
+// Note: Extracted from: https://github.com/OpenZeppelin/openzeppelin-solidity/blob/8545c99fb106636c194da739bd0ede43a9595580/test/helpers/sign.js#L12
+const fixSignature = signature => {
+  // in geth its always 27/28, in ganache its 0/1. Change to 27/28 to prevent
+  // signature malleability if version is 0/1
+  // see https://github.com/ethereum/go-ethereum/blob/v1.8.23/internal/ethapi/api.go#L465
+  let v = parseInt(signature.slice(130, 132), 16);
+  if (v < 27) {
+    v += 27;
+  }
+  const vHex = v.toString(16);
+  return signature.slice(0, 130) + vHex;
+};
+
 contract('StateChannels', accounts => {
   const [alice, bob] = accounts;
 
@@ -76,8 +89,8 @@ contract('StateChannels', accounts => {
       sequenceNumber,
       aliceNewBalance,
       bobNewBalance,
-      aliceSignature,
-      bobSignature,
+      fixSignature(aliceSignature),
+      fixSignature(bobSignature),
       { from: alice }
     );
 
