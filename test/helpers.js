@@ -11,7 +11,7 @@ const fixSignature = signature => {
   return signature.slice(0, 130) + vHex;
 };
 
-const expectEvent = (tx, eventName, expectedArgs) => {
+const expectEvent = (tx, eventName, expectedArgs = {}) => {
   const { logs } = tx;
   const log = logs.find(l => l.event === eventName);
   expect(log, `Event '${eventName}' not found`).to.be.ok;

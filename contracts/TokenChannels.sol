@@ -33,7 +33,7 @@ contract TokenChannels {
     }
 
     // channels by Id
-    mapping(bytes32 => Channel) channels;
+    mapping(bytes32 => Channel) private channels;
 
     event ChannelOpened(bytes32 channelId);
     event CounterPartyJoined(bytes32 channelId);

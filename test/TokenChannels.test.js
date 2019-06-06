@@ -1,12 +1,15 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
-const testHelpers = require('./helpers');
 
 const TokenChannels = artifacts.require('TokenChannels');
 const Dai = artifacts.require('Dai');
 
+const { BN, expectRevert } = require('openzeppelin-test-helpers');
+const { expect } = require('chai');
+const testHelpers = require('./helpers');
+
 const { expectEvent, sign } = testHelpers;
 const { utils } = web3;
-const { BN, toWei, keccak256 } = utils;
+const { toWei, keccak256 } = utils;
 
 contract.only('TokenChannels', accounts => {
   const [root, alice, bob] = accounts;
@@ -37,27 +40,18 @@ contract.only('TokenChannels', accounts => {
     expect(bobBalance).to.equal(bobValue);
 
     // Parties should approve Channel contract
-    const aliceApprovalTx = await dai.approve(channel.address, aliceValue, { from: alice });
-    expectEvent(aliceApprovalTx, 'Approval', {
-      owner: alice,
-      spender: channel.address
-      // value: new BN(aliceValue): Tech-debt: Use chai-bn
-    });
+    const aliceApprovalTx = await dai.approve(channelAddress, aliceValue, { from: alice });
+    expectEvent(aliceApprovalTx, 'Approval');
 
-    const bobApprovalTx = await dai.approve(channel.address, bobValue, { from: bob });
-    expectEvent(bobApprovalTx, 'Approval', {
-      owner: bob,
-      spender: channel.address
-      // value: new BN(aliceValue): Tech-debt: Use chai-bn
-    });
+    const bobApprovalTx = await dai.approve(channelAddress, bobValue, { from: bob });
+    expectEvent(bobApprovalTx, 'Approval');
   });
 
   it('alice should open a channel', async () => {
-    const { address: tokenAddress } = dai;
     const conterParty = bob;
     const amount = aliceValue;
 
-    const tx = await channel.open(tokenAddress, conterParty, amount, {
+    const tx = await channel.open(daiAddress, conterParty, amount, {
       from: alice
     });
 
@@ -68,7 +62,7 @@ contract.only('TokenChannels', accounts => {
 
     // Channel should be funded
     const expectedBalance = aliceValue;
-    const balance = (await dai.balanceOf(channel.address)).toString();
+    const balance = (await dai.balanceOf(channelAddress)).toString();
     expect(balance).to.equal(expectedBalance);
   });
 
@@ -79,7 +73,7 @@ contract.only('TokenChannels', accounts => {
     expectEvent(tx, 'CounterPartyJoined', { channelId });
 
     const expectedBalance = new BN(aliceValue).add(new BN(bobValue)).toString();
-    const balance = (await dai.balanceOf(channel.address)).toString();
+    const balance = (await dai.balanceOf(channelAddress)).toString();
     expect(balance).to.equal(expectedBalance);
   });
 
@@ -92,6 +86,7 @@ contract.only('TokenChannels', accounts => {
       ['bytes32', 'uint', 'uint', 'uint'],
       [channelId, aliceFinalBalance, bobFinalBalance, nonce]
     );
+
     const stateHash = keccak256(stateEncoded);
     const aliceSignature = await sign(stateHash, alice);
     const bobSignature = await sign(stateHash, bob);
@@ -112,13 +107,13 @@ contract.only('TokenChannels', accounts => {
     expectEvent(tx, 'ChannelClosed', { channelId });
 
     const aliceBalanceAfter = await dai.balanceOf(alice);
-    const bobBalancAfter = await dai.balanceOf(bob);
+    const bobBalanceAfter = await dai.balanceOf(bob);
 
-    const expectedAliceBalance = aliceBalanceBefore.add(new BN(aliceFinalBalance)).toString();
-    const expectedBobBalance = bobBalanceBefore.add(new BN(bobFinalBalance)).toString();
+    const expectedAliceBalance = aliceBalanceBefore.add(new BN(aliceFinalBalance));
+    const expectedBobBalance = bobBalanceBefore.add(new BN(bobFinalBalance));
 
-    expect(aliceBalanceAfter.toString()).to.equal(expectedAliceBalance);
-    expect(bobBalancAfter.toString()).to.equal(expectedBobBalance);
+    expect(aliceBalanceAfter).to.be.bignumber.equal(expectedAliceBalance);
+    expect(bobBalanceAfter).to.be.bignumber.equal(expectedBobBalance);
   });
 
   it.skip("should get error if channel id doesn't exists");
