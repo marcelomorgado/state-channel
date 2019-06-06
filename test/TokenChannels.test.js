@@ -1,27 +1,30 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 const testHelpers = require('./helpers');
 
-const { expectEvent, sign, getGasPrice } = testHelpers;
-
 const TokenChannels = artifacts.require('TokenChannels');
 const Dai = artifacts.require('Dai');
 
-const { utils, eth } = web3;
-const { BN, toWei, randomHex, keccak256 } = utils;
-const { getBalance } = eth;
+const { expectEvent, sign } = testHelpers;
+const { utils } = web3;
+const { BN, toWei, keccak256 } = utils;
 
 contract.only('TokenChannels', accounts => {
   const [root, alice, bob] = accounts;
 
   let dai;
+  let daiAddress;
   let channel;
+  let channelAddress;
   let channelId;
   const aliceValue = toWei('10', 'ether');
   const bobValue = toWei('5', 'ether');
 
   before(async () => {
     dai = await Dai.new();
+    ({ address: daiAddress } = dai);
+
     channel = await TokenChannels.new();
+    ({ address: channelAddress } = channel);
 
     // Parties should be funded with tokens
     await dai.mint(alice, aliceValue, { from: root });

@@ -22,11 +22,14 @@
     "eslint-plugin-security": "^1.4.0",
     "ganache-cli": "^6.4.3",
     "prettier": "^1.17.1",
-    "prettier-plugin-solidity": "^1.0.0-alpha.22"
+    "prettier-plugin-solidity": "^1.0.0-alpha.22",
+    "solhint": "^2.1.0"
   },
   "scripts": {
     "test": "npx truffle test",
-    "ganache:start": "npx ganache-cli -m 'master initial share forum rhythm trick inform story obey ahead learn bean'"
+    "ganache:start": "npx ganache-cli -m 'master initial share forum rhythm trick inform story obey ahead learn bean'",
+    "lint:js": "npx eslint --fix . && npx prettier --write .",
+    "lint:sol": "npx solhint --max-warning 0 \"contracts/**/*.sol\""
   },
   "keywords": [],
   "author": "",
