@@ -19,6 +19,7 @@ contract.only('TokenChannels', accounts => {
   let channel;
   let channelAddress;
   let channelId;
+  const channelStates = [];
   const aliceValue = toWei('10', 'ether');
   const bobValue = toWei('5', 'ether');
 
@@ -75,19 +76,48 @@ contract.only('TokenChannels', accounts => {
     const expectedBalance = new BN(aliceValue).add(new BN(bobValue)).toString();
     const balance = (await dai.balanceOf(channelAddress)).toString();
     expect(balance).to.equal(expectedBalance);
+
+    // Save initial state
+    const initialState = await channel.channels.call(channelId);
+    channelStates.push(initialState);
   });
 
-  it('channel should be closed', async () => {
-    const nonce = 1;
-    const aliceFinalBalance = toWei('1', 'ether');
-    const bobFinalBalance = toWei('14', 'ether');
+  it('should do an off-chain transfer', async () => {
+    const lastState = channelStates[channelStates.length - 1];
+    let { partyBalance, counterPartyBalance, nonce } = lastState;
+
+    // Off-chain transfer of 9 tokens from alice (party) to bob (counterParty)
+    const value = new BN(toWei('9', 'ether'));
+
+    partyBalance = partyBalance.sub(value);
+    counterPartyBalance = counterPartyBalance.add(value);
+    nonce = nonce.add(new BN(1));
+
+    const newState = { ...lastState, partyBalance, counterPartyBalance, nonce };
+    channelStates.push(newState);
+  });
+
+  const getHashOfChannelState = state => {
+    const { partyBalance, counterPartyBalance, nonce } = state;
 
     const stateEncoded = web3.eth.abi.encodeParameters(
       ['bytes32', 'uint', 'uint', 'uint'],
-      [channelId, aliceFinalBalance, bobFinalBalance, nonce]
+      [channelId, partyBalance.toString(), counterPartyBalance.toString(), nonce.toString()]
     );
 
     const stateHash = keccak256(stateEncoded);
+    return stateHash;
+  };
+
+  it('channel should be closed', async () => {
+    const lastState = channelStates[channelStates.length - 1];
+    const {
+      partyBalance: aliceFinalBalance,
+      counterPartyBalance: bobFinalBalance,
+      nonce
+    } = lastState;
+    const stateHash = getHashOfChannelState(lastState);
+
     const aliceSignature = await sign(stateHash, alice);
     const bobSignature = await sign(stateHash, bob);
 
@@ -96,9 +126,9 @@ contract.only('TokenChannels', accounts => {
 
     const tx = await channel.close(
       channelId,
-      nonce,
-      aliceFinalBalance,
-      bobFinalBalance,
+      nonce.toString(),
+      `${aliceFinalBalance}`,
+      `${bobFinalBalance}`,
       aliceSignature,
       bobSignature,
       { from: alice }
@@ -109,12 +139,10 @@ contract.only('TokenChannels', accounts => {
     const aliceBalanceAfter = await dai.balanceOf(alice);
     const bobBalanceAfter = await dai.balanceOf(bob);
 
-    const expectedAliceBalance = aliceBalanceBefore.add(new BN(aliceFinalBalance));
-    const expectedBobBalance = bobBalanceBefore.add(new BN(bobFinalBalance));
+    const expectedAliceBalance = aliceBalanceBefore.add(aliceFinalBalance);
+    const expectedBobBalance = bobBalanceBefore.add(bobFinalBalance);
 
     expect(aliceBalanceAfter).to.be.bignumber.equal(expectedAliceBalance);
     expect(bobBalanceAfter).to.be.bignumber.equal(expectedBobBalance);
   });
-
-  it.skip("should get error if channel id doesn't exists");
 });

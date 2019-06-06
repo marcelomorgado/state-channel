@@ -25,11 +25,4 @@ const sign = async (data, signerAddress) => {
   return fixedSignature;
 };
 
-// Note: eth.getGasPrice is working using ganache-cli but doesn't using truffle
-const getGasPrice = async txHash => {
-  const receipt = await web3.eth.getTransaction(txHash);
-  const gasPrice = await receipt.gasPrice;
-  return gasPrice;
-};
-
-module.exports = { expectEvent, sign, getGasPrice };
+module.exports = { expectEvent, sign };
