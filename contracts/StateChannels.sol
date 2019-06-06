@@ -2,6 +2,13 @@ pragma solidity 0.5.8;
 
 import 'openzeppelin-solidity/contracts/cryptography/ECDSA.sol';
 
+// TODO
+//
+// Rename vars
+// Use SafeMath
+//
+//
+//
 contract StateChannels {
     using ECDSA for bytes32;
 
@@ -28,6 +35,7 @@ contract StateChannels {
             channels[channelId].channelId != channelId,
             "channel with that channelId already exists"
         );
+
         require(msg.sender != address1, "you cant create a channel with yourself");
         require(value != 0, "you can't create a payment channel with no money");
         require(msg.value == value, "incorrect funds");

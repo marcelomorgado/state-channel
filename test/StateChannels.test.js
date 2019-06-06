@@ -13,6 +13,14 @@ const expectEvent = (tx, eventName, expectedArgs) => {
   expect(args).to.include(expectedArgs);
 };
 
+// Tech-debt: Extract to testHelpers
+const sign = async (data, signerAddress) => {
+  const signature = await web3.eth.sign(data, signerAddress);
+  const fixedSignature = fixSignature(signature);
+  return fixedSignature;
+};
+
+// Tech-debt: Extract to testHelpers
 // Note: eth.getGasPrice is working using ganache-cli but doesn't using truffle
 const getGasPrice = async txHash => {
   const receipt = await web3.eth.getTransaction(txHash);
@@ -20,6 +28,7 @@ const getGasPrice = async txHash => {
   return gasPrice;
 };
 
+// Tech-debt: Extract to testHelpers
 // Note: Extracted from: https://github.com/OpenZeppelin/openzeppelin-solidity/blob/8545c99fb106636c194da739bd0ede43a9595580/test/helpers/sign.js#L12
 const fixSignature = signature => {
   // in geth its always 27/28, in ganache its 0/1. Change to 27/28 to prevent
@@ -78,8 +87,8 @@ contract('StateChannels', accounts => {
       [channelId, aliceNewBalance, bobNewBalance, sequenceNumber]
     );
     const stateHash = keccak256(stateEncoded);
-    const aliceSignature = await web3.eth.sign(stateHash, alice);
-    const bobSignature = await web3.eth.sign(stateHash, bob);
+    const aliceSignature = await sign(stateHash, alice);
+    const bobSignature = await sign(stateHash, bob);
 
     const aliceBalanceBefore = await getBalance(alice);
     const bobBalanceBefore = await getBalance(bob);
@@ -89,8 +98,8 @@ contract('StateChannels', accounts => {
       sequenceNumber,
       aliceNewBalance,
       bobNewBalance,
-      fixSignature(aliceSignature),
-      fixSignature(bobSignature),
+      aliceSignature,
+      bobSignature,
       { from: alice }
     );
 
