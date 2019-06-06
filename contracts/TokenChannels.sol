@@ -44,6 +44,11 @@ contract TokenChannels {
         _;
     }
 
+    modifier onlyParties(bytes32 id) {
+        require(msg.sender == channels[id].partyAddress || msg.sender == channels[id].counterPartyAddress, "you are not a participant in this channel");
+        _;
+    }
+
     function open(address tokenAddress, address counterPartyAddress, uint256 amount) public {
         address partyAddress = msg.sender;
 
@@ -92,49 +97,37 @@ contract TokenChannels {
         emit CounterPartyJoined(channelId);
     }
 
+
+
     function close(
         bytes32 channelId,
         uint nonce,
         uint partyBalance,
         uint counterPartyBalance,
-        bytes memory signature0,
-        bytes memory signature1
-    ) public {
-        require(channels[channelId].channelId != 0, "no channel with that channelId exists");
+        bytes memory partySignature,
+        bytes memory counterPartySignature
+    ) public onlyParties(channelId) validChannel(channelId) {
 
-        // copies the channel from storage into memory
         Channel memory channel = channels[channelId];
 
-        require(
-            channel.partyAddress == msg.sender || channel.counterPartyAddress == msg.sender,
-            "you are not a participant in this channel"
-        );
-
-        // sha3
         bytes32 stateHash = keccak256(
             abi.encodePacked(channelId, partyBalance, counterPartyBalance, nonce)
         );
 
-        require(ecverify(stateHash, signature0, channel.partyAddress), "signature0 invalid");
-
-        require(ecverify(stateHash, signature1, channel.counterPartyAddress), "signature1 invalid");
-
-        // TODO: Remove-me?
-        require(nonce > channel.nonce, "sequence number too low");
+        require(ecverify(stateHash, partySignature, channel.partyAddress), "partySignature invalid");
+        require(ecverify(stateHash, counterPartySignature, channel.counterPartyAddress), "counterPartySignature invalid");
+        //require(nonce > channel.nonce, "sequence number too low");
 
         require(
             (partyBalance + counterPartyBalance) == (channel.partyBalance + channel.counterPartyBalance),
             "the law of conservation of total balances was not respected"
         );
 
-        // delete channel storage first to prevent re-entry
         delete channels[channelId];
 
-        address payable a0 = address(uint160(channel.partyAddress));
-        address payable a1 = address(uint160(channel.counterPartyAddress));
-
-        a0.transfer(partyBalance);
-        a1.transfer(counterPartyBalance);
+        ERC20 token = ERC20(channel.tokenAddress);
+        require(token.transfer(channel.partyAddress, partyBalance), "Token transfer to the party failed");
+        require(token.transfer(channel.counterPartyAddress, counterPartyBalance), "Token transfer to the counter party failed");
 
         emit ChannelClosed(channelId);
     }

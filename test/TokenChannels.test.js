@@ -80,26 +80,27 @@ contract.only('TokenChannels', accounts => {
     expect(balance).to.equal(expectedBalance);
   });
 
-  it.skip('channel should be closed', async () => {
-    const sequenceNumber = 1;
-    const aliceNewBalance = toWei('1', 'ether');
-    const bobNewBalance = toWei('14', 'ether');
+  it('channel should be closed', async () => {
+    const nonce = 1;
+    const aliceFinalBalance = toWei('1', 'ether');
+    const bobFinalBalance = toWei('14', 'ether');
+
     const stateEncoded = web3.eth.abi.encodeParameters(
       ['bytes32', 'uint', 'uint', 'uint'],
-      [channelId, aliceNewBalance, bobNewBalance, sequenceNumber]
+      [channelId, aliceFinalBalance, bobFinalBalance, nonce]
     );
     const stateHash = keccak256(stateEncoded);
     const aliceSignature = await sign(stateHash, alice);
     const bobSignature = await sign(stateHash, bob);
 
-    const aliceBalanceBefore = await getBalance(alice);
-    const bobBalanceBefore = await getBalance(bob);
+    const aliceBalanceBefore = await dai.balanceOf(alice);
+    const bobBalanceBefore = await dai.balanceOf(bob);
 
     const tx = await channel.close(
       channelId,
-      sequenceNumber,
-      aliceNewBalance,
-      bobNewBalance,
+      nonce,
+      aliceFinalBalance,
+      bobFinalBalance,
       aliceSignature,
       bobSignature,
       { from: alice }
@@ -107,23 +108,14 @@ contract.only('TokenChannels', accounts => {
 
     expectEvent(tx, 'ChannelClosed', { channelId });
 
-    const { receipt } = tx;
-    const { gasUsed } = receipt;
-    const gasPrice = await getGasPrice(tx.tx);
-    const fee = new BN(gasUsed).mul(new BN(gasPrice));
+    const aliceBalanceAfter = await dai.balanceOf(alice);
+    const bobBalancAfter = await dai.balanceOf(bob);
 
-    const aliceBalanceAfter = await getBalance(alice);
-    const bobBalancAfter = await getBalance(bob);
+    const expectedAliceBalance = aliceBalanceBefore.add(new BN(aliceFinalBalance)).toString();
+    const expectedBobBalance = bobBalanceBefore.add(new BN(bobFinalBalance)).toString();
 
-    const expectedAliceBalance = new BN(aliceBalanceBefore)
-      .add(new BN(aliceNewBalance))
-      .sub(fee)
-      .toString();
-
-    const expectedBobBalance = new BN(bobBalanceBefore).add(new BN(bobNewBalance)).toString();
-
-    expect(aliceBalanceAfter).to.equal(expectedAliceBalance);
-    expect(bobBalancAfter).to.equal(expectedBobBalance);
+    expect(aliceBalanceAfter.toString()).to.equal(expectedAliceBalance);
+    expect(bobBalancAfter.toString()).to.equal(expectedBobBalance);
   });
 
   it.skip("should get error if channel id doesn't exists");
