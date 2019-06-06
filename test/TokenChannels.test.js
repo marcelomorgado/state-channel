@@ -34,15 +34,22 @@ contract.only('TokenChannels', accounts => {
     expect(bobBalance).to.equal(bobValue);
 
     // Parties should approve Channel contract
-    const tx = await dai.approve(channel.address, aliceValue, { from: alice });
-    expectEvent(tx, 'Approval', {
+    const aliceApprovalTx = await dai.approve(channel.address, aliceValue, { from: alice });
+    expectEvent(aliceApprovalTx, 'Approval', {
       owner: alice,
+      spender: channel.address
+      // value: new BN(aliceValue): Tech-debt: Use chai-bn
+    });
+
+    const bobApprovalTx = await dai.approve(channel.address, bobValue, { from: bob });
+    expectEvent(bobApprovalTx, 'Approval', {
+      owner: bob,
       spender: channel.address
       // value: new BN(aliceValue): Tech-debt: Use chai-bn
     });
   });
 
-  it.only('alice should open a channel', async () => {
+  it('alice should open a channel', async () => {
     const { address: tokenAddress } = dai;
     const conterParty = bob;
     const amount = aliceValue;
@@ -63,16 +70,17 @@ contract.only('TokenChannels', accounts => {
   });
 
   it('bob should join to the channel', async () => {
-    const tx = await channel.join(channelId, { from: bob, value: bobValue });
+    const amount = bobValue;
+    const tx = await channel.join(channelId, amount, { from: bob });
 
     expectEvent(tx, 'CounterPartyJoined', { channelId });
 
     const expectedBalance = new BN(aliceValue).add(new BN(bobValue)).toString();
-    const balance = await getBalance(channel.address);
+    const balance = (await dai.balanceOf(channel.address)).toString();
     expect(balance).to.equal(expectedBalance);
   });
 
-  it('channel should be closed', async () => {
+  it.skip('channel should be closed', async () => {
     const sequenceNumber = 1;
     const aliceNewBalance = toWei('1', 'ether');
     const bobNewBalance = toWei('14', 'ether');

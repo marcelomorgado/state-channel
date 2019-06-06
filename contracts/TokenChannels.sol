@@ -13,6 +13,8 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 // Offline cases (periods)
 // ChannelState
 // Great comments
+// Review error messages
+// Safety review
 //
 contract TokenChannels {
     using SafeMath for uint256;
@@ -37,13 +39,18 @@ contract TokenChannels {
     event CounterPartyJoined(bytes32 channelId);
     event ChannelClosed(bytes32 channelId);
 
-    function open(address tokenAddress, address counterPartyAddress, uint256 amount) public payable {
+    modifier validChannel(bytes32 id) {
+        require(channels[id].channelId != 0, "no channel with that channelId exists");
+        _;
+    }
+
+    function open(address tokenAddress, address counterPartyAddress, uint256 amount) public {
         address partyAddress = msg.sender;
 
         require(partyAddress != counterPartyAddress, "you cant create a channel with yourself");
         require(amount != 0, "you can't create a payment channel with no money");
 
-        // Note: block.timestamp isn't a strong source of entropy but it's enough safe for that use case
+        // Note: block.timestamp isn't a strong source of entropy but it's safe enough for that use case
         bytes32 channelId = keccak256(
             abi.encodePacked(partyAddress, counterPartyAddress, block.timestamp)
         );
@@ -66,15 +73,21 @@ contract TokenChannels {
         emit ChannelOpened(channelId);
     }
 
-    function join(bytes32 channelId) public payable {
-        require(channels[channelId].channelId != 0, "no channel with that channelId exists");
+    function join(bytes32 channelId, uint256 amount) public validChannel(channelId) {
+        address counterPartyAddress = msg.sender;
+
+        Channel storage channel = channels[channelId];
+
         require(
-            channels[channelId].counterPartyAddress == msg.sender,
+            channel.counterPartyAddress == counterPartyAddress,
             "the channel creator did not specify you as the second participant"
         );
-        require(msg.value != 0, "incorrect funds");
+        require(amount != 0, "incorrect funds");
 
-        channels[channelId].counterPartyBalance = msg.value;
+        ERC20 token = ERC20(channel.tokenAddress);
+        require(token.transferFrom(counterPartyAddress, address(this), amount), "incorrect funds");
+
+        channel.counterPartyBalance = amount;
 
         emit CounterPartyJoined(channelId);
     }
