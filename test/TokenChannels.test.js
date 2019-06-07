@@ -13,7 +13,7 @@ const { toWei, keccak256 } = utils;
 
 const ChannelStatus = {
   OPEN: new BN(0),
-  CLOSING: new BN(1),
+  ON_CHALLENGE: new BN(1),
   CLOSED: new BN(2)
 };
 
@@ -367,7 +367,7 @@ contract.only('TokenChannels', accounts => {
         { from: alice }
       );
 
-      expectEvent(tx, 'ChannelFinalized', { channelId });
+      expectEvent(tx, 'ChannelClosed', { channelId });
 
       const channelState = await channel.channels.call(channelId);
 

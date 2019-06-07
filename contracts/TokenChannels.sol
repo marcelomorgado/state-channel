@@ -14,7 +14,7 @@ contract TokenChannels {
     using SafeMath for uint256;
     using ECDSA for bytes32;
 
-    enum ChannelStatus {OPEN, CLOSING, CLOSED}
+    enum ChannelStatus {OPEN, ON_CHALLENGE, CLOSED}
 
     struct Channel {
         bytes32 channelId;
@@ -36,9 +36,9 @@ contract TokenChannels {
     //
     event ChannelOpened(bytes32 channelId);
     event CounterPartyJoined(bytes32 channelId);
-    event ChannelClosed(bytes32 channelId);
+    event ChannelOnChallenge(bytes32 channelId);
     event ChannelChallenged(bytes32 channelId);
-    event ChannelFinalized(bytes32 channelId);
+    event ChannelClosed(bytes32 channelId);
 
     //
     // Modifiers
@@ -69,8 +69,8 @@ contract TokenChannels {
         _;
     }
 
-    modifier isClosing(bytes32 id) {
-        require(channels[id].status == ChannelStatus.CLOSING, "The channel should be closing.");
+    modifier isOnChallenge(bytes32 id) {
+        require(channels[id].status == ChannelStatus.ON_CHALLENGE, "The channel should be on challenge.");
         _;
     }
 
@@ -203,7 +203,9 @@ contract TokenChannels {
 
         if (channelHasNoChallengePeriod) {
             distributeFunds(channelId);
-        }
+        } else {
+            emit ChannelOnChallenge(channelId);
+        }        
     }
 
     /**
@@ -228,7 +230,7 @@ contract TokenChannels {
         public
         onlyParties(channelId)
         validChannel(channelId)
-        isClosing(channelId)
+        isOnChallenge(channelId)
         isDuringChallengePeriod(channelId)
     {
         Channel memory channel = channels[channelId];
@@ -312,10 +314,8 @@ contract TokenChannels {
         channel.nonce = nonce;
         channel.partyBalance = partyBalance;
         channel.counterPartyBalance = counterPartyBalance;
-        if (channel.closeTime == 0) {
-            channel.closeTime = now;
-        }
-        channel.status = ChannelStatus.CLOSING;
+        if (channel.closeTime == 0) channel.closeTime = now;
+        channel.status = ChannelStatus.ON_CHALLENGE;
     }
 
     /**
@@ -343,7 +343,7 @@ contract TokenChannels {
             );
         }
 
-        emit ChannelFinalized(channelId);
+        emit ChannelClosed(channelId);
     }
 
     /**
