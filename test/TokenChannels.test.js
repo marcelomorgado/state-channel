@@ -11,6 +11,12 @@ const { expectEvent, sign } = testHelpers;
 const { utils } = web3;
 const { toWei, keccak256 } = utils;
 
+const ChannelStatus = {
+  OPEN: new BN(0),
+  CLOSING: new BN(1),
+  CLOSED: new BN(2)
+};
+
 /*
  * States
  */
@@ -107,9 +113,9 @@ contract.only('TokenChannels', accounts => {
     expectEvent(tx, 'Approval');
   };
 
-  const openChannelSucessfully = async () => {
+  const openChannelSucessfully = async (challengePeriod = 0) => {
     const amount = aliceDeposit;
-    const tx = await channel.open(daiAddress, bob, amount, { from: alice });
+    const tx = await channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
 
     // ChannelOpened event should be emitted
     const { args } = tx.logs.find(l => l.event === 'ChannelOpened');
@@ -123,6 +129,9 @@ contract.only('TokenChannels', accounts => {
 
     // Save initial state
     const initialState = await channel.channels.call(channelId);
+
+    expect(initialState.status).to.be.bignumber.equal(ChannelStatus.OPEN);
+
     channelStates.push(initialState);
   };
 
@@ -151,16 +160,18 @@ contract.only('TokenChannels', accounts => {
     await approveChannelContract(bob, bobDeposit);
   });
 
-  describe('open a channel', () => {
+  describe('open a channel without challenge period', () => {
+    const challengePeriod = '0';
+
     it("shouldn't open a channel with himself", async () => {
       const amount = aliceDeposit;
-      const openChannel = channel.open(daiAddress, alice, amount, { from: alice });
+      const openChannel = channel.open(daiAddress, alice, amount, challengePeriod, { from: alice });
       await expectRevert(openChannel, "You can't create a channel with yourself");
     });
 
     it("shouldn't open a channel without tokens", async () => {
       const amount = '0';
-      const openChannel = channel.open(daiAddress, bob, amount, { from: alice });
+      const openChannel = channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
       await expectRevert(openChannel, "You can't create a payment channel without tokens");
     });
 
@@ -169,7 +180,7 @@ contract.only('TokenChannels', accounts => {
       expect(balance).to.be.bignumber.equal(new BN(0));
 
       const amount = '10';
-      const openChannel = channel.open(daiAddress, bob, amount, { from: carl });
+      const openChannel = channel.open(daiAddress, bob, amount, challengePeriod, { from: carl });
 
       // Note: That message is being sent by ERC20 contract during transferFrom call
       await expectRevert(openChannel, 'SafeMath: subtraction overflow.');
@@ -213,6 +224,14 @@ contract.only('TokenChannels', accounts => {
     });
 
     it('bob should join to the channel', joinChannelSucessfully);
+
+    it.skip("shouldn't join twice", async () => {
+      await joinChannelSucessfully();
+      await mintTokens(bob, bobDeposit);
+      await joinChannelSucessfully();
+    });
+
+    it.skip("shouldn't join to a closed or closing channel", async () => {});
   });
 
   describe('close a channel', () => {
@@ -348,7 +367,11 @@ contract.only('TokenChannels', accounts => {
         { from: alice }
       );
 
-      expectEvent(tx, 'ChannelClosed', { channelId });
+      expectEvent(tx, 'ChannelFinalized', { channelId });
+
+      const channelState = await channel.channels.call(channelId);
+
+      expect(channelState.status).to.be.bignumber.equal(ChannelStatus.CLOSED);
 
       const aliceBalanceAfter = await dai.balanceOf(alice);
       const bobBalanceAfter = await dai.balanceOf(bob);

@@ -14,7 +14,7 @@ contract TokenChannels {
     using SafeMath for uint256;
     using ECDSA for bytes32;
 
-    //enum ChannelState { Open, Closing, Closed }
+    enum ChannelStatus {OPEN, CLOSING, CLOSED}
 
     struct Channel {
         bytes32 channelId;
@@ -24,6 +24,9 @@ contract TokenChannels {
         uint256 partyBalance;
         uint256 counterPartyBalance;
         uint nonce;
+        uint closeTime;
+        uint challengePeriod;
+        ChannelStatus status;
     }
 
     mapping(bytes32 => Channel) public channels;
@@ -34,6 +37,8 @@ contract TokenChannels {
     event ChannelOpened(bytes32 channelId);
     event CounterPartyJoined(bytes32 channelId);
     event ChannelClosed(bytes32 channelId);
+    event ChannelChallenged(bytes32 channelId);
+    event ChannelFinalized(bytes32 channelId);
 
     //
     // Modifiers
@@ -51,6 +56,19 @@ contract TokenChannels {
         _;
     }
 
+    modifier isOpenned(bytes32 id) {
+        require(channels[id].status == ChannelStatus.OPEN, "The channel should be opened.");
+        _;
+    }
+
+    modifier notClosed(bytes32 id) {
+        require(
+            channels[id].status != ChannelStatus.CLOSED,
+            "The channel shouldn't not be closed."
+        );
+        _;
+    }
+
     //
     // Public functions
     //
@@ -61,8 +79,14 @@ contract TokenChannels {
    * @param tokenAddress        Address of the token contract
    * @param counterPartyAddress Account address of the other party
    * @param amount              Number of tokens to deposit
+   * @param challengePeriod     Optional challenge period for either party to close the channel
    */
-    function open(address tokenAddress, address counterPartyAddress, uint256 amount) public {
+    function open(
+        address tokenAddress,
+        address counterPartyAddress,
+        uint256 amount,
+        uint challengePeriod
+    ) public {
         address partyAddress = msg.sender;
 
         require(partyAddress != counterPartyAddress, "You can't create a channel with yourself");
@@ -72,6 +96,8 @@ contract TokenChannels {
             abi.encodePacked(tokenAddress, partyAddress, counterPartyAddress, block.number)
         );
 
+        // TODO: Test if channelID already exists
+
         Channel memory channel = Channel(
             channelId,
             tokenAddress,
@@ -79,7 +105,10 @@ contract TokenChannels {
             counterPartyAddress,
             amount, // partyBalance
             0, // counterPartyBalance
-            0 // nonce
+            0, // nonce
+            0, // closeTime
+            challengePeriod,
+            ChannelStatus.OPEN // status
         );
 
         ERC20 token = ERC20(tokenAddress);
@@ -99,7 +128,11 @@ contract TokenChannels {
    * @param channelId   Channel ID
    * @param amount      Number of tokens to deposit (can be zero)
    */
-    function join(bytes32 channelId, uint256 amount) public validChannel(channelId) {
+    function join(bytes32 channelId, uint256 amount)
+        public
+        validChannel(channelId)
+        isOpenned(channelId)
+    {
         address counterPartyAddress = msg.sender;
 
         Channel storage channel = channels[channelId];
@@ -118,6 +151,7 @@ contract TokenChannels {
                 "Token transfer with error"
             );
         }
+
         channel.counterPartyBalance = amount;
 
         emit CounterPartyJoined(channelId);
@@ -140,7 +174,52 @@ contract TokenChannels {
         uint256 counterPartyBalance,
         bytes memory partySignature,
         bytes memory counterPartySignature
-    ) public onlyParties(channelId) validChannel(channelId) {
+    ) public onlyParties(channelId) validChannel(channelId) notClosed(channelId) {
+        Channel memory channel = channels[channelId];
+
+        bool channelHasNoChallengePeriod = channel.challengePeriod == 0;
+        bool challengeIsOver = channel.closeTime + channel.challengePeriod > now;
+        bool isChallange = channel.status == ChannelStatus.CLOSING;
+
+        require(channelHasNoChallengePeriod || !challengeIsOver);
+
+        verifyReceiptSignatures(
+            channelId,
+            nonce,
+            partyBalance,
+            counterPartyBalance,
+            partySignature,
+            counterPartySignature
+        );
+
+        if (channelHasNoChallengePeriod || challengeIsOver) {
+            updateReceipt(channelId, nonce, partyBalance, counterPartyBalance);
+            distributeFunds(channelId);
+            return;
+        }
+
+        if(isChallange) {
+            require(nonce > channel.nonce, "The nonce should be greater than the last");
+            updateReceipt(channelId, nonce, partyBalance, counterPartyBalance);
+            emit ChannelChallenged(channelId);
+        } else {
+            updateReceipt(channelId, nonce, partyBalance, counterPartyBalance);
+            emit ChannelClosed(channelId);
+        }
+    }
+
+    //
+    // Internal functions
+    //
+
+    function verifyReceiptSignatures(
+        bytes32 channelId,
+        uint nonce,
+        uint256 partyBalance,
+        uint256 counterPartyBalance,
+        bytes memory partySignature,
+        bytes memory counterPartySignature
+    ) internal {
         Channel memory channel = channels[channelId];
 
         bytes32 stateHash = keccak256(
@@ -155,31 +234,57 @@ contract TokenChannels {
             ecverify(stateHash, counterPartySignature, channel.counterPartyAddress),
             "The counterPartySignature is invalid"
         );
-        //require(nonce > channel.nonce, "sequence number too low");
+    }
+
+    function updateReceipt(
+        bytes32 channelId,
+        uint nonce,
+        uint256 partyBalance,
+        uint256 counterPartyBalance
+    ) internal {
+        Channel storage channel = channels[channelId];
 
         require(
-            partyBalance.add(counterPartyBalance) == channel.partyBalance.add(channel.counterPartyBalance),
+            partyBalance.add(counterPartyBalance) == channel.partyBalance.add(
+                channel.counterPartyBalance
+            ),
             "The law of conservation of total balances was not respected"
         );
 
-        delete channels[channelId];
-
-        ERC20 token = ERC20(channel.tokenAddress);
-        require(
-            token.transfer(channel.partyAddress, partyBalance),
-            "Token transfer to the party failed"
-        );
-        require(
-            token.transfer(channel.counterPartyAddress, counterPartyBalance),
-            "Token transfer to the counter party failed"
-        );
-
-        emit ChannelClosed(channelId);
+        channel.nonce = nonce;
+        channel.partyBalance = partyBalance;
+        channel.counterPartyBalance = counterPartyBalance;
+        if (channel.closeTime == 0) channel.closeTime = now;
+        channel.status = ChannelStatus.CLOSING;
     }
 
-    //
-    // Internal functions
-    //
+    /**
+   * Transfer tokens to channel participants
+   *
+   * @param channelId   Channel ID
+   */
+    function distributeFunds(bytes32 channelId) internal notClosed(channelId) {
+        Channel storage channel = channels[channelId];
+        channel.status = ChannelStatus.CLOSED;
+
+        ERC20 token = ERC20(channel.tokenAddress);
+
+        if (channel.partyBalance > 0) {
+            require(
+                token.transfer(channel.partyAddress, channel.partyBalance),
+                "Token transfer to the party failed"
+            );
+        }
+
+        if (channel.counterPartyBalance > 0) {
+            require(
+                token.transfer(channel.counterPartyAddress, channel.counterPartyBalance),
+                "Token transfer to the counter party failed"
+            );
+        }
+
+        emit ChannelFinalized(channelId);
+    }
 
     /**
    * Check if a hash was signed by an address
