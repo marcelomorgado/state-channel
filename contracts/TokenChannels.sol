@@ -79,8 +79,15 @@ contract TokenChannels {
 
     modifier isDuringChallengePeriod(bytes32 id) {
         Channel memory channel = channels[id];
-        bool challengeWasOver = channel.closeTime.add(channel.challengePeriod) > now;
+        bool challengeWasOver = now > channel.closeTime.add(channel.challengePeriod);
         require(!challengeWasOver, "The challenge period was over.");
+        _;
+    }
+
+    modifier isChallengePeriodOver(bytes32 id) {
+        Channel memory channel = channels[id];
+        bool challengeWasOver = now > channel.closeTime.add(channel.challengePeriod);
+        require(challengeWasOver, "The challenge period should be over.");
         _;
     }
 
@@ -126,7 +133,7 @@ contract TokenChannels {
             ChannelStatus.OPEN // status
         );
 
-        transferFrom(channel.tokenAddress, partyAddress, address(this), amount);
+        receiveTokens(channel.tokenAddress, partyAddress, amount);
 
         channels[channelId] = channel;
 
@@ -155,7 +162,7 @@ contract TokenChannels {
 
         require(amount >= 0, "Incorrect amount");
 
-        transferFrom(channel.tokenAddress, counterPartyAddress, address(this), amount);
+        receiveTokens(channel.tokenAddress, counterPartyAddress, amount);
 
         channel.counterPartyBalance = amount;
 
@@ -243,23 +250,49 @@ contract TokenChannels {
         emit ChannelChallenged(channelId);
     }
 
+    /**
+   * Redeem funds based on the last receipt
+   *
+   * @param channelId   Channel ID
+   */
+    function redeem(bytes32 channelId)
+        public
+        onlyParties(channelId)
+        validChannel(channelId)
+        isOnChallenge(channelId)
+        isChallengePeriodOver(channelId)
+    {
+        distributeFunds(channelId);
+    }
+
     //
     // Internal functions
     //
 
-
     /**
-   * Call transferFrom function of a token.
+   * Transfer tokens from a participant to the channel's contract
    *
    * @param tokenAddress            The address of the ERC20 token contract
    * @param from                    The address of the owner of the funds
-   * @param to                      The address of the beneficiary of the transfer
-   * @param amount                  The value of the transfer (No transfer will be mande if zero)
+   * @param amount                  The value of the transfer (No transfer will be made if zero)
    */
-    function transferFrom(address tokenAddress, address from, address to, uint256 amount) internal {
+    function receiveTokens(address tokenAddress, address from, uint256 amount) internal {
         if (amount > 0) {
             ERC20 token = ERC20(tokenAddress);
-            require(token.transferFrom(from, to, amount), "Token transfer with error");
+            require(token.transferFrom(from, address(this), amount), "Token transfer with error");
+        }
+    }
+
+    /**
+   * Transfer tokens from a participant to the channel's contract
+   *
+   * @param token       The ERC20 token object
+   * @param to        The address of the beneficiary of the funds
+   * @param amount      The value of the transfer (No transfer will be made if zero)
+   */
+    function sendTokens(ERC20 token, address to, uint256 amount) internal {
+        if (amount > 0) {
+            require(token.transfer(to, amount), "Token transfer with error");
         }
     }
 
@@ -335,22 +368,10 @@ contract TokenChannels {
     function distributeFunds(bytes32 channelId) internal notClosed(channelId) {
         Channel storage channel = channels[channelId];
         channel.status = ChannelStatus.CLOSED;
-
         ERC20 token = ERC20(channel.tokenAddress);
 
-        if (channel.partyBalance > 0) {
-            require(
-                token.transfer(channel.partyAddress, channel.partyBalance),
-                "Token transfer to the party failed"
-            );
-        }
-
-        if (channel.counterPartyBalance > 0) {
-            require(
-                token.transfer(channel.counterPartyAddress, channel.counterPartyBalance),
-                "Token transfer to the counter party failed"
-            );
-        }
+        sendTokens(token, channel.partyAddress, channel.partyBalance);
+        sendTokens(token, channel.counterPartyAddress, channel.counterPartyBalance);
 
         emit ChannelClosed(channelId);
     }

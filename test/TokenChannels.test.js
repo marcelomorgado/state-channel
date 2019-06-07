@@ -420,16 +420,35 @@ contract('TokenChannels', accounts => {
         await openChannelSucessfully(oneDayPeriod);
         await joinChannelSucessfully();
         await offChainTransfers();
-      });
 
-      it('channel should be closed with the last state (nonce)', async () => {
-        const lastState = getLastState();
-        await closeChannel(lastState, bob);
-      });
-
-      it('channel should be closed with and older state (nonce)', async () => {
         const olderState = channelStates[channelStates.length - 3];
         await closeChannel(olderState, alice);
+      });
+
+      it('bob should be update channel receipt using a higher nonce', async () => {
+        const {
+          channelId,
+          partyBalance,
+          counterPartyBalance,
+          nonce,
+          partySignature,
+          counterPartySignature
+        } = getLastState();
+
+        const tx = await channel.challenge(
+          channelId,
+          `${nonce}`,
+          `${partyBalance}`,
+          `${counterPartyBalance}`,
+          partySignature,
+          counterPartySignature,
+          { from: bob }
+        );
+
+        const { status } = await channel.channels.call(channelId);
+
+        expectEvent(tx, 'ChannelChallenged', { channelId });
+        expect(status).to.be.bignumber.equal(ChannelStatus.ON_CHALLENGE);
       });
     });
   });
