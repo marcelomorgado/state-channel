@@ -21,8 +21,8 @@ contract TokenChannels {
         address tokenAddress;
         address partyAddress;
         address counterPartyAddress;
-        uint partyBalance;
-        uint counterPartyBalance;
+        uint256 partyBalance;
+        uint256 counterPartyBalance;
         uint nonce;
     }
 
@@ -39,14 +39,14 @@ contract TokenChannels {
     // Modifiers
     //
     modifier validChannel(bytes32 id) {
-        require(channels[id].channelId != 0, "no channel with that channelId exists");
+        require(channels[id].channelId != 0, "No channel with that channelId exists");
         _;
     }
 
     modifier onlyParties(bytes32 id) {
         require(
             msg.sender == channels[id].partyAddress || msg.sender == channels[id].counterPartyAddress,
-            "you are not a participant in this channel"
+            "You are not a participant in this channel"
         );
         _;
     }
@@ -117,8 +117,8 @@ contract TokenChannels {
                 token.transferFrom(counterPartyAddress, address(this), amount),
                 "Token transfer with error"
             );
-            channel.counterPartyBalance = amount;
         }
+        channel.counterPartyBalance = amount;
 
         emit CounterPartyJoined(channelId);
     }
@@ -136,8 +136,8 @@ contract TokenChannels {
     function close(
         bytes32 channelId,
         uint nonce,
-        uint partyBalance,
-        uint counterPartyBalance,
+        uint256 partyBalance,
+        uint256 counterPartyBalance,
         bytes memory partySignature,
         bytes memory counterPartySignature
     ) public onlyParties(channelId) validChannel(channelId) {
@@ -149,17 +149,17 @@ contract TokenChannels {
 
         require(
             ecverify(stateHash, partySignature, channel.partyAddress),
-            "partySignature invalid"
+            "The partySignature is invalid"
         );
         require(
             ecverify(stateHash, counterPartySignature, channel.counterPartyAddress),
-            "counterPartySignature invalid"
+            "The counterPartySignature is invalid"
         );
         //require(nonce > channel.nonce, "sequence number too low");
 
         require(
-            (partyBalance + counterPartyBalance) == (channel.partyBalance + channel.counterPartyBalance),
-            "the law of conservation of total balances was not respected"
+            partyBalance.add(counterPartyBalance) == channel.partyBalance.add(channel.counterPartyBalance),
+            "The law of conservation of total balances was not respected"
         );
 
         delete channels[channelId];
