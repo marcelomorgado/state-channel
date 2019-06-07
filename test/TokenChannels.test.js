@@ -17,6 +17,10 @@ const ChannelStatus = {
   CLOSED: new BN(2)
 };
 
+const ONE_TOKEN = new BN(toWei('1', 'ether'));
+const FIVE_TOKENS = new BN(toWei('5', 'ether'));
+const TEN_TOKENS = new BN(toWei('10', 'ether'));
+
 /*
  * States
  */
@@ -87,8 +91,8 @@ contract('TokenChannels', accounts => {
   let channel;
   let channelAddress;
 
-  const aliceDeposit = toWei('10', 'ether');
-  const bobDeposit = toWei('5', 'ether');
+  const aliceDeposit = TEN_TOKENS;
+  const bobDeposit = FIVE_TOKENS;
 
   const instantiateContracts = async () => {
     dai = await Dai.new();
@@ -173,7 +177,42 @@ contract('TokenChannels', accounts => {
       { from: senderAddress }
     );
 
+    const { challengePeriod, status } = await channel.channels.call(channelId);
+    const channelHasChallengePeriod = challengePeriod.gt(new BN(0));
+
+    if (channelHasChallengePeriod) {
+      expectEvent(tx, 'ChannelOnChallenge', { channelId });
+      expect(status).to.be.bignumber.equal(ChannelStatus.ON_CHALLENGE);
+    } else {
+      expectEvent(tx, 'ChannelClosed', { channelId });
+      expect(status).to.be.bignumber.equal(ChannelStatus.CLOSED);
+    }
+
     return tx;
+  };
+
+  const offChainTransfers = async () => {
+    const {
+      partyBalance: aliceBalanceBefore,
+      counterPartyBalance: bobBalanceBefore
+    } = getLastState();
+
+    expect(aliceBalanceBefore).to.be.bignumber.equal(TEN_TOKENS);
+    expect(bobBalanceBefore).to.be.bignumber.equal(FIVE_TOKENS);
+
+    await offChainTransfer(alice, bob, ONE_TOKEN);
+    await offChainTransfer(alice, bob, ONE_TOKEN);
+    await offChainTransfer(alice, bob, ONE_TOKEN);
+    await offChainTransfer(alice, bob, ONE_TOKEN);
+    await offChainTransfer(alice, bob, ONE_TOKEN);
+
+    const {
+      partyBalance: aliceBalanceAfter,
+      counterPartyBalance: bobBalanceAfter
+    } = getLastState();
+
+    expect(aliceBalanceAfter).to.be.bignumber.equal(FIVE_TOKENS);
+    expect(bobBalanceAfter).to.be.bignumber.equal(TEN_TOKENS);
   };
 
   beforeEach(async () => {
@@ -275,10 +314,7 @@ contract('TokenChannels', accounts => {
       beforeEach('', async () => {
         await openChannelSucessfully();
         await joinChannelSucessfully();
-
-        // should do an off-chain transfer
-        const value = new BN(toWei('9', 'ether'));
-        await offChainTransfer(alice, bob, value);
+        await offChainTransfers();
       });
 
       it("the channel shouldn't be closed by a third-party", async () => {
@@ -330,13 +366,7 @@ contract('TokenChannels', accounts => {
         const aliceBalanceBefore = await dai.balanceOf(alice);
         const bobBalanceBefore = await dai.balanceOf(bob);
 
-        const tx = await closeChannel(lastState, alice);
-
-        expectEvent(tx, 'ChannelClosed', { channelId });
-
-        const channelState = await channel.channels.call(channelId);
-
-        expect(channelState.status).to.be.bignumber.equal(ChannelStatus.CLOSED);
+        await closeChannel(lastState, alice);
 
         const aliceBalanceAfter = await dai.balanceOf(alice);
         const bobBalanceAfter = await dai.balanceOf(bob);
@@ -371,44 +401,35 @@ contract('TokenChannels', accounts => {
       beforeEach('', async () => {
         await openChannelSucessfully(oneDayPeriod);
         await joinChannelSucessfully();
-
-        // Some off chain transfers
-        const {
-          partyBalance: aliceBalanceBefore,
-          counterPartyBalance: bobBalanceBefore
-        } = getLastState();
-
-        expect(aliceBalanceBefore).to.be.bignumber.equal(new BN(toWei('10', 'ether')));
-        expect(bobBalanceBefore).to.be.bignumber.equal(new BN(toWei('5', 'ether')));
-
-        const oneToken = new BN(toWei('1', 'ether'));
-
-        await offChainTransfer(alice, bob, oneToken);
-        await offChainTransfer(alice, bob, oneToken);
-        await offChainTransfer(alice, bob, oneToken);
-        await offChainTransfer(alice, bob, oneToken);
-        await offChainTransfer(alice, bob, oneToken);
-
-        const {
-          partyBalance: aliceBalanceAfter,
-          counterPartyBalance: bobBalanceAfter
-        } = getLastState();
-
-        expect(aliceBalanceAfter).to.be.bignumber.equal(new BN(toWei('5', 'ether')));
-        expect(bobBalanceAfter).to.be.bignumber.equal(new BN(toWei('10', 'ether')));
+        await offChainTransfers();
       });
 
-      it('channel should be closed with the last status (nonce)', async () => {
+      it('channel should be closed with the last state (nonce)', async () => {
         const lastState = getLastState();
-        const { channelId } = lastState;
+        await closeChannel(lastState, bob);
+      });
 
-        const tx = await closeChannel(lastState, alice);
+      it('channel should be closed with and older state (nonce)', async () => {
+        const olderState = channelStates[channelStates.length - 3];
+        await closeChannel(olderState, alice);
+      });
+    });
 
-        expectEvent(tx, 'ChannelOnChallenge', { channelId });
+    describe('challenge', () => {
+      beforeEach('', async () => {
+        await openChannelSucessfully(oneDayPeriod);
+        await joinChannelSucessfully();
+        await offChainTransfers();
+      });
 
-        const channelState = await channel.channels.call(channelId);
+      it('channel should be closed with the last state (nonce)', async () => {
+        const lastState = getLastState();
+        await closeChannel(lastState, bob);
+      });
 
-        expect(channelState.status).to.be.bignumber.equal(ChannelStatus.ON_CHALLENGE);
+      it('channel should be closed with and older state (nonce)', async () => {
+        const olderState = channelStates[channelStates.length - 3];
+        await closeChannel(olderState, alice);
       });
     });
   });
