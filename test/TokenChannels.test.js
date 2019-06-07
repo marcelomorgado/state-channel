@@ -3,7 +3,7 @@
 const TokenChannels = artifacts.require('TokenChannels');
 const Dai = artifacts.require('Dai');
 
-const { BN, expectRevert } = require('openzeppelin-test-helpers');
+const { BN, expectRevert, time } = require('openzeppelin-test-helpers');
 const { expect } = require('chai');
 const testHelpers = require('./helpers');
 
@@ -84,7 +84,7 @@ const offChainTransfer = async (from, to, value) => {
 
 contract('TokenChannels', accounts => {
   const [root, alice, bob, carl] = accounts;
-  const oneDayPeriod = 1 * 24 * 60 * 60;
+  const oneDayPeriod = time.duration.days(1);
 
   let dai;
   let daiAddress;
@@ -118,7 +118,7 @@ contract('TokenChannels', accounts => {
     expectEvent(tx, 'Approval');
   };
 
-  const openChannelSucessfully = async (challengePeriod = 0) => {
+  const openChannel = async (challengePeriod = 0) => {
     const amount = aliceDeposit;
     const tx = await channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
 
@@ -141,7 +141,7 @@ contract('TokenChannels', accounts => {
     channelStates.push(initialState);
   };
 
-  const joinChannelSucessfully = async () => {
+  const joinChannel = async () => {
     const { channelId } = channelStates.pop();
     const amount = bobDeposit;
 
@@ -155,6 +155,8 @@ contract('TokenChannels', accounts => {
     // Update initial state
     const initialState = await channel.channels.call(channelId);
     channelStates.push(initialState);
+
+    return tx;
   };
 
   const closeChannel = async (state, senderAddress) => {
@@ -187,6 +189,29 @@ contract('TokenChannels', accounts => {
       expectEvent(tx, 'ChannelClosed', { channelId });
       expect(status).to.be.bignumber.equal(ChannelStatus.CLOSED);
     }
+
+    return tx;
+  };
+
+  const challange = async (state, sender) => {
+    const {
+      channelId,
+      partyBalance,
+      counterPartyBalance,
+      nonce,
+      partySignature,
+      counterPartySignature
+    } = state;
+
+    const tx = await channel.challenge(
+      channelId,
+      `${nonce}`,
+      `${partyBalance}`,
+      `${counterPartyBalance}`,
+      partySignature,
+      counterPartySignature,
+      { from: sender }
+    );
 
     return tx;
   };
@@ -230,25 +255,25 @@ contract('TokenChannels', accounts => {
 
       it("shouldn't open a channel with himself", async () => {
         const amount = aliceDeposit;
-        const openChannel = channel.open(daiAddress, alice, amount, challengePeriod, {
+        const open = channel.open(daiAddress, alice, amount, challengePeriod, {
           from: alice
         });
-        await expectRevert(openChannel, "You can't create a channel with yourself");
+        await expectRevert(open, "You can't create a channel with yourself.");
       });
 
       it("shouldn't open a channel without tokens", async () => {
         const amount = '0';
-        const openChannel = channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
-        await expectRevert(openChannel, "You can't create a payment channel without tokens");
+        const open = channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
+        await expectRevert(open, "You can't create a payment channel without tokens.");
       });
 
       it("shouldn't open a channel without token transferFrom approval", async () => {
         await dai.decreaseAllowance(channelAddress, aliceDeposit, { from: alice });
         const amount = aliceDeposit;
-        const openChannel = channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
+        const open = channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
 
         // Note: That message is being sent by ERC20 contract during transferFrom call
-        await expectRevert(openChannel, 'SafeMath: subtraction overflow.');
+        await expectRevert(open, 'SafeMath: subtraction overflow.');
       });
 
       it("shouldn't open a channel with insufficient tokens", async () => {
@@ -256,25 +281,25 @@ contract('TokenChannels', accounts => {
         expect(balance).to.be.bignumber.equal(new BN(0));
 
         const amount = '10';
-        const openChannel = channel.open(daiAddress, bob, amount, challengePeriod, { from: carl });
+        const open = channel.open(daiAddress, bob, amount, challengePeriod, { from: carl });
 
         // Note: That message is being sent by ERC20 contract during transferFrom call
-        await expectRevert(openChannel, 'SafeMath: subtraction overflow.');
+        await expectRevert(open, 'SafeMath: subtraction overflow.');
       });
 
-      it('should open a channel without challenge period', openChannelSucessfully);
+      it('should open a channel without challenge period', openChannel);
     });
 
     describe('join to a channel', () => {
       beforeEach('', async () => {
-        await openChannelSucessfully();
+        await openChannel();
       });
 
       it("shouldn't join to a invalid channel", async () => {
         const invalidChannelId = '0xABCDEF';
         const amount = bobDeposit;
-        const joinChannel = channel.join(invalidChannelId, amount, { from: bob });
-        await expectRevert(joinChannel, 'No channel with that channelId exists');
+        const join = channel.join(invalidChannelId, amount, { from: bob });
+        await expectRevert(join, 'No channel with that channelId exists.');
       });
 
       it("shouldn't join if the user isn't the counter party", async () => {
@@ -284,11 +309,8 @@ contract('TokenChannels', accounts => {
         await mintTokens(carl, amount);
         await approveChannelContract(carl, amount);
 
-        const joinChannel = channel.join(channelId, amount, { from: carl });
-        await expectRevert(
-          joinChannel,
-          "The channel creator did'nt specify you as the counter party"
-        );
+        const join = channel.join(channelId, amount, { from: carl });
+        await expectRevert(join, "The channel creator did'nt specify you as the counter party.");
       });
 
       it('bob should join to the channel without funds', async () => {
@@ -299,27 +321,34 @@ contract('TokenChannels', accounts => {
         expectEvent(tx, 'CounterPartyJoined', { channelId });
       });
 
-      it('bob should join to the channel', joinChannelSucessfully);
+      it('bob should join to the channel', joinChannel);
 
-      it.skip("shouldn't join twice", async () => {
-        await joinChannelSucessfully();
+      it("shouldn't join twice", async () => {
+        await joinChannel();
         await mintTokens(bob, bobDeposit);
-        await joinChannelSucessfully();
+        await approveChannelContract(bob, bobDeposit);
+        await expectRevert(joinChannel(), 'You cannot join to the channel twice.');
       });
 
-      it.skip("shouldn't join to a closed or on challenge channel", async () => {});
+      it("shouldn't join to a closed", async () => {
+        await joinChannel();
+        await offChainTransfers();
+        const lastState = getLastState();
+        await closeChannel(lastState, alice);
+        await expectRevert(joinChannel(), 'The channel should be opened.');
+      });
     });
 
     describe('close a channel', () => {
       beforeEach('', async () => {
-        await openChannelSucessfully();
-        await joinChannelSucessfully();
+        await openChannel();
+        await joinChannel();
         await offChainTransfers();
       });
 
       it("the channel shouldn't be closed by a third-party", async () => {
         const state = getLastState();
-        await expectRevert(closeChannel(state, carl), 'You are not a participant in this channel');
+        await expectRevert(closeChannel(state, carl), 'You are not a participant in this channel.');
       });
 
       describe("the channel shouldn't be closed using wrong signatures", async () => {
@@ -327,14 +356,14 @@ contract('TokenChannels', accounts => {
           let state = getLastState();
           const partySignature = '0xA';
           state = { ...state, partySignature };
-          await expectRevert(closeChannel(state, alice), 'The partySignature is invalid');
+          await expectRevert(closeChannel(state, alice), 'The partySignature is invalid.');
         });
 
         it('invalid counter party signature', async () => {
           let state = getLastState();
           const counterPartySignature = '0xA';
           state = { ...state, counterPartySignature };
-          await expectRevert(closeChannel(state, alice), 'The counterPartySignature is invalid');
+          await expectRevert(closeChannel(state, alice), 'The counterPartySignature is invalid.');
         });
       });
 
@@ -351,17 +380,13 @@ contract('TokenChannels', accounts => {
 
         await expectRevert(
           closeChannel(fakeState, alice),
-          'The law of conservation of total balances was not respected'
+          'The law of conservation of total balances was not respected.'
         );
       });
 
       it('channel should be closed', async () => {
         const lastState = getLastState();
-        const {
-          channelId,
-          partyBalance: aliceFinalBalance,
-          counterPartyBalance: bobFinalBalance
-        } = lastState;
+        const { partyBalance: aliceFinalBalance, counterPartyBalance: bobFinalBalance } = lastState;
 
         const aliceBalanceBefore = await dai.balanceOf(alice);
         const bobBalanceBefore = await dai.balanceOf(bob);
@@ -383,24 +408,35 @@ contract('TokenChannels', accounts => {
   describe('channel with challenge period', () => {
     describe('open a channel', () => {
       it('should open a channel with challenge period', async () => {
-        await openChannelSucessfully(oneDayPeriod);
+        await openChannel(oneDayPeriod);
       });
     });
 
     describe('join to a channel', () => {
       beforeEach('', async () => {
-        await openChannelSucessfully(oneDayPeriod);
+        await openChannel(oneDayPeriod);
       });
 
-      it('bob should join to the channel', joinChannelSucessfully);
+      it('bob should join to the channel', joinChannel);
 
-      it.skip("shouldn't join to a channel with on challenge status", async () => {});
+      it("shouldn't join to a channel with on challenge status", async () => {
+        await joinChannel();
+        await offChainTransfers();
+        const lastState = getLastState();
+        await closeChannel(lastState, alice);
+
+        const { channelId } = lastState;
+        const { status } = await channel.channels.call(channelId);
+        expect(status).to.be.bignumber.equal(ChannelStatus.ON_CHALLENGE);
+
+        await expectRevert(joinChannel(), 'The channel should be opened.');
+      });
     });
 
     describe('close a channel', () => {
       beforeEach('', async () => {
-        await openChannelSucessfully(oneDayPeriod);
-        await joinChannelSucessfully();
+        await openChannel(oneDayPeriod);
+        await joinChannel();
         await offChainTransfers();
       });
 
@@ -417,39 +453,81 @@ contract('TokenChannels', accounts => {
 
     describe('challenge', () => {
       beforeEach('', async () => {
-        await openChannelSucessfully(oneDayPeriod);
-        await joinChannelSucessfully();
+        await openChannel(oneDayPeriod);
+        await joinChannel();
         await offChainTransfers();
 
         const olderState = channelStates[channelStates.length - 3];
         await closeChannel(olderState, alice);
       });
 
-      it('bob should be update channel receipt using a higher nonce', async () => {
-        const {
-          channelId,
-          partyBalance,
-          counterPartyBalance,
-          nonce,
-          partySignature,
-          counterPartySignature
-        } = getLastState();
+      it('only participants should call the challenge function', async () => {
+        const state = getLastState();
+        await expectRevert(challange(state, carl), 'You are not a participant in this channel.');
+      });
 
-        const tx = await channel.challenge(
-          channelId,
-          `${nonce}`,
-          `${partyBalance}`,
-          `${counterPartyBalance}`,
-          partySignature,
-          counterPartySignature,
-          { from: bob }
-        );
+      it('bob should update the channel receipt using a higher nonce', async () => {
+        const state = getLastState();
+        const { channelId } = state;
+
+        const tx = await challange(state, bob);
 
         const { status } = await channel.channels.call(channelId);
-
         expectEvent(tx, 'ChannelChallenged', { channelId });
         expect(status).to.be.bignumber.equal(ChannelStatus.ON_CHALLENGE);
       });
+
+      it.skip('should get error if channel is invalid', () => {});
+      it.skip('should get error if channel status != on challenge', () => {});
+      it.skip('should get error if the challenge period was over', () => {});
+      it.skip('both signatures should be correct', () => {});
+      it.skip('receipt balances should be correct', () => {});
+    });
+
+    describe('redeem funds', () => {
+      beforeEach('', async () => {
+        await openChannel(oneDayPeriod);
+        await joinChannel();
+        await offChainTransfers();
+
+        const lastState = getLastState();
+        await closeChannel(lastState, bob);
+      });
+
+      it("the funds shouldn't be redeemed during the challenge period", async () => {
+        const { channelId } = getLastState();
+        const redeem = channel.redeem(channelId, { from: bob });
+        await expectRevert(redeem, 'The challenge period should be over.');
+      });
+
+      it('the funds should be redeemed after the challenge period', async () => {
+        const {
+          channelId,
+          partyBalance: aliceFinalBalance,
+          counterPartyBalance: bobFinalBalance
+        } = getLastState();
+
+        const aliceBalanceBefore = await dai.balanceOf(alice);
+        const bobBalanceBefore = await dai.balanceOf(bob);
+
+        await time.increase(time.duration.days(2));
+
+        const tx = await channel.redeem(channelId, { from: bob });
+        expectEvent(tx, 'ChannelClosed', { channelId });
+
+        const aliceBalanceAfter = await dai.balanceOf(alice);
+        const bobBalanceAfter = await dai.balanceOf(bob);
+
+        const expectedAliceBalance = aliceBalanceBefore.add(aliceFinalBalance);
+        const expectedBobBalance = bobBalanceBefore.add(bobFinalBalance);
+
+        expect(aliceBalanceAfter).to.be.bignumber.equal(expectedAliceBalance);
+        expect(bobBalanceAfter).to.be.bignumber.equal(expectedBobBalance);
+      });
+
+      it.skip('only participants should redeem funds', () => {});
+      it.skip('should get error if channel is invalid', () => {});
+      it.skip('should get error if channel status != on challenge', () => {});
     });
   });
 });

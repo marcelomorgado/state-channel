@@ -4,12 +4,6 @@ import "openzeppelin-solidity/contracts/cryptography/ECDSA.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 
-// TODO
-//
-// Challenge
-// ChannelState
-// Safety review
-//
 contract TokenChannels {
     using SafeMath for uint256;
     using ECDSA for bytes32;
@@ -44,14 +38,14 @@ contract TokenChannels {
     // Modifiers
     //
     modifier validChannel(bytes32 id) {
-        require(channels[id].channelId != 0, "No channel with that channelId exists");
+        require(channels[id].channelId != 0, "No channel with that channelId exists.");
         _;
     }
 
     modifier onlyParties(bytes32 id) {
         require(
             msg.sender == channels[id].partyAddress || msg.sender == channels[id].counterPartyAddress,
-            "You are not a participant in this channel"
+            "You are not a participant in this channel."
         );
         _;
     }
@@ -111,8 +105,8 @@ contract TokenChannels {
     ) public {
         address partyAddress = msg.sender;
 
-        require(partyAddress != counterPartyAddress, "You can't create a channel with yourself");
-        require(amount != 0, "You can't create a payment channel without tokens");
+        require(partyAddress != counterPartyAddress, "You can't create a channel with yourself.");
+        require(amount != 0, "You can't create a payment channel without tokens.");
 
         bytes32 channelId = keccak256(
             abi.encodePacked(tokenAddress, partyAddress, counterPartyAddress, block.number)
@@ -157,10 +151,12 @@ contract TokenChannels {
 
         require(
             channel.counterPartyAddress == counterPartyAddress,
-            "The channel creator did'nt specify you as the counter party"
+            "The channel creator did'nt specify you as the counter party."
         );
 
-        require(amount >= 0, "Incorrect amount");
+        require(channel.counterPartyBalance == 0, "You cannot join to the channel twice.");
+
+        require(amount >= 0, "Incorrect amount.");
 
         receiveTokens(channel.tokenAddress, counterPartyAddress, amount);
 
@@ -235,7 +231,7 @@ contract TokenChannels {
     {
         Channel memory channel = channels[channelId];
 
-        require(nonce > channel.nonce, "The nonce should be greater than the last");
+        require(nonce > channel.nonce, "The nonce should be greater than the last.");
 
         verifyReceiptSignatures(
             channelId,
@@ -279,7 +275,7 @@ contract TokenChannels {
     function receiveTokens(address tokenAddress, address from, uint256 amount) internal {
         if (amount > 0) {
             ERC20 token = ERC20(tokenAddress);
-            require(token.transferFrom(from, address(this), amount), "Token transfer with error");
+            require(token.transferFrom(from, address(this), amount), "Token transfer with error.");
         }
     }
 
@@ -292,7 +288,7 @@ contract TokenChannels {
    */
     function sendTokens(ERC20 token, address to, uint256 amount) internal {
         if (amount > 0) {
-            require(token.transfer(to, amount), "Token transfer with error");
+            require(token.transfer(to, amount), "Token transfer with error.");
         }
     }
 
@@ -322,11 +318,11 @@ contract TokenChannels {
 
         require(
             ecverify(stateHash, partySignature, channel.partyAddress),
-            "The partySignature is invalid"
+            "The partySignature is invalid."
         );
         require(
             ecverify(stateHash, counterPartySignature, channel.counterPartyAddress),
-            "The counterPartySignature is invalid"
+            "The counterPartySignature is invalid."
         );
     }
 
@@ -350,7 +346,7 @@ contract TokenChannels {
             partyBalance.add(counterPartyBalance) == channel.partyBalance.add(
                 channel.counterPartyBalance
             ),
-            "The law of conservation of total balances was not respected"
+            "The law of conservation of total balances was not respected."
         );
 
         channel.nonce = nonce;
