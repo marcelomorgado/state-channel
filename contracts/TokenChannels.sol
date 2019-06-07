@@ -56,7 +56,7 @@ contract TokenChannels {
         _;
     }
 
-    modifier isOpenned(bytes32 id) {
+    modifier isOpen(bytes32 id) {
         require(channels[id].status == ChannelStatus.OPEN, "The channel should be opened.");
         _;
     }
@@ -66,6 +66,18 @@ contract TokenChannels {
             channels[id].status != ChannelStatus.CLOSED,
             "The channel shouldn't not be closed."
         );
+        _;
+    }
+
+    modifier isClosing(bytes32 id) {
+        require(channels[id].status == ChannelStatus.CLOSING, "The channel should be closing.");
+        _;
+    }
+
+    modifier isDuringChallengePeriod(bytes32 id) {
+        Channel memory channel = channels[id];
+        bool challengeWasOver = channel.closeTime.add(channel.challengePeriod) > now;
+        require(!challengeWasOver, "The challenge period was over.");
         _;
     }
 
@@ -131,7 +143,7 @@ contract TokenChannels {
     function join(bytes32 channelId, uint256 amount)
         public
         validChannel(channelId)
-        isOpenned(channelId)
+        isOpen(channelId)
     {
         address counterPartyAddress = msg.sender;
 
@@ -174,14 +186,54 @@ contract TokenChannels {
         uint256 counterPartyBalance,
         bytes memory partySignature,
         bytes memory counterPartySignature
-    ) public onlyParties(channelId) validChannel(channelId) notClosed(channelId) {
+    ) public onlyParties(channelId) validChannel(channelId) isOpen(channelId) {
+        verifyReceiptSignatures(
+            channelId,
+            nonce,
+            partyBalance,
+            counterPartyBalance,
+            partySignature,
+            counterPartySignature
+        );
+
+        updateReceipt(channelId, nonce, partyBalance, counterPartyBalance);
+
+        Channel memory channel = channels[channelId];
+        bool channelHasNoChallengePeriod = channel.challengePeriod == 0;
+
+        if (channelHasNoChallengePeriod) {
+            distributeFunds(channelId);
+        }
+    }
+
+    /**
+   * During the challenge period, either party can submit a proof that contains
+   * a higher nonce
+   *
+   * @param channelId               Channel ID
+   * @param nonce                   Sequence number
+   * @param partyBalance            The final balance of the party
+   * @param counterPartyBalance     The final balance of the counter party
+   * @param partySignature          Last state of the channel signed by the party
+   * @param counterPartySignature   Last state of the channel signed by the counter party
+   */
+    function challenge(
+        bytes32 channelId,
+        uint nonce,
+        uint256 partyBalance,
+        uint256 counterPartyBalance,
+        bytes memory partySignature,
+        bytes memory counterPartySignature
+    )
+        public
+        onlyParties(channelId)
+        validChannel(channelId)
+        isClosing(channelId)
+        isDuringChallengePeriod(channelId)
+    {
         Channel memory channel = channels[channelId];
 
-        bool channelHasNoChallengePeriod = channel.challengePeriod == 0;
-        bool challengeIsOver = channel.closeTime + channel.challengePeriod > now;
-        bool isChallange = channel.status == ChannelStatus.CLOSING;
-
-        require(channelHasNoChallengePeriod || !challengeIsOver);
+        require(nonce > channel.nonce, "The nonce should be greater than the last");
 
         verifyReceiptSignatures(
             channelId,
@@ -192,26 +244,24 @@ contract TokenChannels {
             counterPartySignature
         );
 
-        if (channelHasNoChallengePeriod || challengeIsOver) {
-            updateReceipt(channelId, nonce, partyBalance, counterPartyBalance);
-            distributeFunds(channelId);
-            return;
-        }
-
-        if(isChallange) {
-            require(nonce > channel.nonce, "The nonce should be greater than the last");
-            updateReceipt(channelId, nonce, partyBalance, counterPartyBalance);
-            emit ChannelChallenged(channelId);
-        } else {
-            updateReceipt(channelId, nonce, partyBalance, counterPartyBalance);
-            emit ChannelClosed(channelId);
-        }
+        updateReceipt(channelId, nonce, partyBalance, counterPartyBalance);
+        emit ChannelChallenged(channelId);
     }
 
     //
     // Internal functions
     //
 
+    /**
+   * Check the signatures of channel parcipants
+   *
+   * @param channelId               Channel ID
+   * @param nonce                   Sequence number
+   * @param partyBalance            The final balance of the party
+   * @param counterPartyBalance     The final balance of the counter party
+   * @param partySignature          Last state of the channel signed by the party
+   * @param counterPartySignature   Last state of the channel signed by the counter party
+   */
     function verifyReceiptSignatures(
         bytes32 channelId,
         uint nonce,
@@ -236,6 +286,14 @@ contract TokenChannels {
         );
     }
 
+    /**
+   * Update channel receipt
+   *
+   * @param channelId               Channel ID
+   * @param nonce                   Sequence number
+   * @param partyBalance            The final balance of the party
+   * @param counterPartyBalance     The final balance of the counter party
+   */
     function updateReceipt(
         bytes32 channelId,
         uint nonce,
@@ -254,7 +312,9 @@ contract TokenChannels {
         channel.nonce = nonce;
         channel.partyBalance = partyBalance;
         channel.counterPartyBalance = counterPartyBalance;
-        if (channel.closeTime == 0) channel.closeTime = now;
+        if (channel.closeTime == 0) {
+            channel.closeTime = now;
+        }
         channel.status = ChannelStatus.CLOSING;
     }
 
