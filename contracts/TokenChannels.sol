@@ -70,7 +70,10 @@ contract TokenChannels {
     }
 
     modifier isOnChallenge(bytes32 id) {
-        require(channels[id].status == ChannelStatus.ON_CHALLENGE, "The channel should be on challenge.");
+        require(
+            channels[id].status == ChannelStatus.ON_CHALLENGE,
+            "The channel should be on challenge."
+        );
         _;
     }
 
@@ -123,11 +126,7 @@ contract TokenChannels {
             ChannelStatus.OPEN // status
         );
 
-        ERC20 token = ERC20(tokenAddress);
-        require(
-            token.transferFrom(partyAddress, address(this), amount),
-            "Token transfer with error"
-        );
+        transferFrom(channel.tokenAddress, partyAddress, address(this), amount);
 
         channels[channelId] = channel;
 
@@ -156,13 +155,7 @@ contract TokenChannels {
 
         require(amount >= 0, "Incorrect amount");
 
-        if (amount > 0) {
-            ERC20 token = ERC20(channel.tokenAddress);
-            require(
-                token.transferFrom(counterPartyAddress, address(this), amount),
-                "Token transfer with error"
-            );
-        }
+        transferFrom(channel.tokenAddress, counterPartyAddress, address(this), amount);
 
         channel.counterPartyBalance = amount;
 
@@ -205,7 +198,7 @@ contract TokenChannels {
             distributeFunds(channelId);
         } else {
             emit ChannelOnChallenge(channelId);
-        }        
+        }
     }
 
     /**
@@ -253,6 +246,22 @@ contract TokenChannels {
     //
     // Internal functions
     //
+
+
+    /**
+   * Call transferFrom function of a token.
+   *
+   * @param tokenAddress            The address of the ERC20 token contract
+   * @param from                    The address of the owner of the funds
+   * @param to                      The address of the beneficiary of the transfer
+   * @param amount                  The value of the transfer (No transfer will be mande if zero)
+   */
+    function transferFrom(address tokenAddress, address from, address to, uint256 amount) internal {
+        if (amount > 0) {
+            ERC20 token = ERC20(tokenAddress);
+            require(token.transferFrom(from, to, amount), "Token transfer with error");
+        }
+    }
 
     /**
    * Check the signatures of channel parcipants
