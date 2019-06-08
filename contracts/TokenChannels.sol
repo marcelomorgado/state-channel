@@ -309,7 +309,7 @@ contract TokenChannels {
         uint256 counterPartyBalance,
         bytes memory partySignature,
         bytes memory counterPartySignature
-    ) internal {
+    ) internal view {
         Channel memory channel = channels[channelId];
 
         bytes32 stateHash = keccak256(
