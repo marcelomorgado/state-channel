@@ -34,8 +34,8 @@
   },
   "keywords": [
     "ethereum",
-    "state channel",
-    "payment channel",
+    "state-channel",
+    "payment-channel",
     "erc20"
   ],
   "author": "Marcelo Morgado",
