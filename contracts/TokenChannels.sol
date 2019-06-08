@@ -78,7 +78,7 @@ contract TokenChannels {
         _;
     }
 
-    modifier isChallengePeriodOver(bytes32 id) {
+    modifier challengePeriodWasOver(bytes32 id) {
         Channel memory channel = channels[id];
         bool challengeWasOver = now > channel.closeTime.add(channel.challengePeriod);
         require(challengeWasOver, "The challenge period should be over.");
@@ -256,7 +256,7 @@ contract TokenChannels {
         onlyParties(channelId)
         validChannel(channelId)
         isOnChallenge(channelId)
-        isChallengePeriodOver(channelId)
+        challengePeriodWasOver(channelId)
     {
         distributeFunds(channelId);
     }
@@ -283,7 +283,7 @@ contract TokenChannels {
    * Transfer tokens from a participant to the channel's contract
    *
    * @param token       The ERC20 token object
-   * @param to        The address of the beneficiary of the funds
+   * @param to          The address of the beneficiary of the funds
    * @param amount      The value of the transfer (No transfer will be made if zero)
    */
     function sendTokens(ERC20 token, address to, uint256 amount) internal {

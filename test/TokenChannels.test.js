@@ -86,8 +86,8 @@ contract('TokenChannels', accounts => {
   const [root, alice, bob, carl] = accounts;
   const oneDayPeriod = time.duration.days(1);
 
-  let dai;
-  let daiAddress;
+  let token;
+  let tokenAddress;
   let channel;
   let channelAddress;
 
@@ -95,32 +95,32 @@ contract('TokenChannels', accounts => {
   const bobDeposit = FIVE_TOKENS;
 
   const instantiateContracts = async () => {
-    dai = await Dai.new();
-    ({ address: daiAddress } = dai);
+    token = await Dai.new();
+    ({ address: tokenAddress } = token);
 
     channel = await TokenChannels.new();
     ({ address: channelAddress } = channel);
   };
 
   const mintTokens = async (to, amount) => {
-    const balanceBefore = await dai.balanceOf(to);
+    const balanceBefore = await token.balanceOf(to);
     expect(balanceBefore).to.be.bignumber.equal(new BN(0));
 
-    await dai.mint(to, amount, { from: root });
+    await token.mint(to, amount, { from: root });
 
-    const balanceAfter = await dai.balanceOf(to);
+    const balanceAfter = await token.balanceOf(to);
 
     expect(balanceAfter).to.be.bignumber.equal(new BN(amount));
   };
 
   const approveChannelContract = async (from, amount) => {
-    const tx = await dai.approve(channelAddress, amount, { from });
+    const tx = await token.approve(channelAddress, amount, { from });
     expectEvent(tx, 'Approval');
   };
 
   const openChannel = async (challengePeriod = 0) => {
     const amount = aliceDeposit;
-    const tx = await channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
+    const tx = await channel.open(tokenAddress, bob, amount, challengePeriod, { from: alice });
 
     // ChannelOpened event should be emitted
     const { args } = tx.logs.find(l => l.event === 'ChannelOpened');
@@ -129,7 +129,7 @@ contract('TokenChannels', accounts => {
 
     // Channel should be funded
     const expectedBalance = new BN(aliceDeposit);
-    const balance = await dai.balanceOf(channelAddress);
+    const balance = await token.balanceOf(channelAddress);
     expect(balance).to.be.bignumber.equal(expectedBalance);
 
     // Save initial state
@@ -149,7 +149,7 @@ contract('TokenChannels', accounts => {
     expectEvent(tx, 'CounterPartyJoined', { channelId });
 
     const expectedBalance = new BN(aliceDeposit).add(new BN(bobDeposit));
-    const balance = await dai.balanceOf(channelAddress);
+    const balance = await token.balanceOf(channelAddress);
     expect(balance).to.be.bignumber.equal(expectedBalance);
 
     // Update initial state
@@ -255,7 +255,7 @@ contract('TokenChannels', accounts => {
 
       it("shouldn't open a channel with himself", async () => {
         const amount = aliceDeposit;
-        const open = channel.open(daiAddress, alice, amount, challengePeriod, {
+        const open = channel.open(tokenAddress, alice, amount, challengePeriod, {
           from: alice
         });
         await expectRevert(open, "You can't create a channel with yourself.");
@@ -263,25 +263,25 @@ contract('TokenChannels', accounts => {
 
       it("shouldn't open a channel without tokens", async () => {
         const amount = '0';
-        const open = channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
+        const open = channel.open(tokenAddress, bob, amount, challengePeriod, { from: alice });
         await expectRevert(open, "You can't create a payment channel without tokens.");
       });
 
       it("shouldn't open a channel without token transferFrom approval", async () => {
-        await dai.decreaseAllowance(channelAddress, aliceDeposit, { from: alice });
+        await token.decreaseAllowance(channelAddress, aliceDeposit, { from: alice });
         const amount = aliceDeposit;
-        const open = channel.open(daiAddress, bob, amount, challengePeriod, { from: alice });
+        const open = channel.open(tokenAddress, bob, amount, challengePeriod, { from: alice });
 
         // Note: That message is being sent by ERC20 contract during transferFrom call
         await expectRevert(open, 'SafeMath: subtraction overflow.');
       });
 
       it("shouldn't open a channel with insufficient tokens", async () => {
-        const balance = await dai.balanceOf(carl);
+        const balance = await token.balanceOf(carl);
         expect(balance).to.be.bignumber.equal(new BN(0));
 
         const amount = '10';
-        const open = channel.open(daiAddress, bob, amount, challengePeriod, { from: carl });
+        const open = channel.open(tokenAddress, bob, amount, challengePeriod, { from: carl });
 
         // Note: That message is being sent by ERC20 contract during transferFrom call
         await expectRevert(open, 'SafeMath: subtraction overflow.');
@@ -388,13 +388,13 @@ contract('TokenChannels', accounts => {
         const lastState = getLastState();
         const { partyBalance: aliceFinalBalance, counterPartyBalance: bobFinalBalance } = lastState;
 
-        const aliceBalanceBefore = await dai.balanceOf(alice);
-        const bobBalanceBefore = await dai.balanceOf(bob);
+        const aliceBalanceBefore = await token.balanceOf(alice);
+        const bobBalanceBefore = await token.balanceOf(bob);
 
         await closeChannel(lastState, alice);
 
-        const aliceBalanceAfter = await dai.balanceOf(alice);
-        const bobBalanceAfter = await dai.balanceOf(bob);
+        const aliceBalanceAfter = await token.balanceOf(alice);
+        const bobBalanceAfter = await token.balanceOf(bob);
 
         const expectedAliceBalance = aliceBalanceBefore.add(aliceFinalBalance);
         const expectedBobBalance = bobBalanceBefore.add(bobFinalBalance);
@@ -476,12 +476,6 @@ contract('TokenChannels', accounts => {
         expectEvent(tx, 'ChannelChallenged', { channelId });
         expect(status).to.be.bignumber.equal(ChannelStatus.ON_CHALLENGE);
       });
-
-      it.skip('should get error if channel is invalid', () => {});
-      it.skip('should get error if channel status != on challenge', () => {});
-      it.skip('should get error if the challenge period was over', () => {});
-      it.skip('both signatures should be correct', () => {});
-      it.skip('receipt balances should be correct', () => {});
     });
 
     describe('redeem funds', () => {
@@ -507,16 +501,16 @@ contract('TokenChannels', accounts => {
           counterPartyBalance: bobFinalBalance
         } = getLastState();
 
-        const aliceBalanceBefore = await dai.balanceOf(alice);
-        const bobBalanceBefore = await dai.balanceOf(bob);
+        const aliceBalanceBefore = await token.balanceOf(alice);
+        const bobBalanceBefore = await token.balanceOf(bob);
 
         await time.increase(time.duration.days(2));
 
         const tx = await channel.redeem(channelId, { from: bob });
         expectEvent(tx, 'ChannelClosed', { channelId });
 
-        const aliceBalanceAfter = await dai.balanceOf(alice);
-        const bobBalanceAfter = await dai.balanceOf(bob);
+        const aliceBalanceAfter = await token.balanceOf(alice);
+        const bobBalanceAfter = await token.balanceOf(bob);
 
         const expectedAliceBalance = aliceBalanceBefore.add(aliceFinalBalance);
         const expectedBobBalance = bobBalanceBefore.add(bobFinalBalance);
@@ -524,10 +518,6 @@ contract('TokenChannels', accounts => {
         expect(aliceBalanceAfter).to.be.bignumber.equal(expectedAliceBalance);
         expect(bobBalanceAfter).to.be.bignumber.equal(expectedBobBalance);
       });
-
-      it.skip('only participants should redeem funds', () => {});
-      it.skip('should get error if channel is invalid', () => {});
-      it.skip('should get error if channel status != on challenge', () => {});
     });
   });
 });

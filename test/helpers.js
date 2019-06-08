@@ -14,6 +14,7 @@ const fixSignature = signature => {
 const expectEvent = (tx, eventName, expectedArgs = {}) => {
   const { logs } = tx;
   const log = logs.find(l => l.event === eventName);
+  // eslint-disable-next-line no-unused-expressions
   expect(log, `Event '${eventName}' not found`).to.be.ok;
   const { args } = log;
   expect(args).to.include(expectedArgs);
