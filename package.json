@@ -1,7 +1,7 @@
 {
   "name": "state-channel",
   "version": "1.0.0",
-  "description": "",
+  "description": "An Ethereum state-channel implementation for ERC20 bidirectional payments",
   "main": "truffle-config.js",
   "directories": {
     "test": "test"
@@ -32,7 +32,12 @@
     "lint:js": "npx eslint --fix . && npx prettier --write .",
     "lint:sol": "npx solhint --max-warning 0 \"contracts/**/*.sol\""
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "keywords": [
+    "ethereum",
+    "state channel",
+    "payment channel",
+    "erc20"
+  ],
+  "author": "Marcelo Morgado",
+  "license": "MIT"
 }
